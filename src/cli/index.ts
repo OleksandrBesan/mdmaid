@@ -209,12 +209,12 @@ async function serveCommand(args: CliArgs) {
 
   if (!args.input) {
     console.error('Error: Input file required for serve command');
-    console.error('Usage: mdmaid serve <file.md> [--watch] [--port 3333]');
+    console.error('Usage: mdmaid serve <file.md> [--watch] [--port PORT]');
     process.exit(1);
   }
 
   const options = {
-    port: args.port || 3333,
+    port: args.port, // undefined = dynamic port (OS assigns)
     watch: args.watch || false,
   };
 

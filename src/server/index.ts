@@ -1,8 +1,8 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { readFileSync, statSync, readdirSync } from 'fs';
-import { resolve, extname, basename } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { resolve, extname, basename, relative } from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { watch } from 'chokidar';
+import { watch, FSWatcher } from 'chokidar';
 import { renderMarkdown } from '../core/renderer';
 
 export interface ServerOptions {
@@ -11,10 +11,27 @@ export interface ServerOptions {
   host?: string;
 }
 
+interface FileInfo {
+  path: string;
+  name: string;
+  relativePath: string;
+}
+
 interface TocItem {
   id: string;
   text: string;
   level: number;
+}
+
+interface ServerState {
+  files: Map<string, FileInfo>;
+  currentFile: string | null;
+  baseDir: string;
+}
+
+interface WsMessage {
+  action: 'switch' | 'add' | 'remove' | 'list';
+  file?: string;
 }
 
 /**
@@ -29,7 +46,6 @@ function extractTOC(html: string): TocItem[] {
     const level = parseInt(match[1]);
     const id = match[2];
     const text = match[3].trim();
-
     toc.push({ id, text, level });
   }
 
@@ -37,14 +53,33 @@ function extractTOC(html: string): TocItem[] {
 }
 
 /**
- * Generate HTML template with TOC and Magnifier
+ * Generate HTML template with file picker, TOC and Magnifier
  */
-function generateHTMLTemplate(content: string, title: string, filePath: string): string {
+function generateHTMLTemplate(
+  content: string,
+  currentFile: FileInfo,
+  allFiles: FileInfo[],
+  baseDir: string
+): string {
   const toc = extractTOC(content);
 
+  const filesHTML = allFiles.length > 0 ? `
+    <div class="files-section">
+      <div class="section-header">Files</div>
+      <ul class="files-list">
+        ${allFiles.map(f => `
+          <li class="file-item ${f.path === currentFile.path ? 'active' : ''}" data-file="${f.path}">
+            <span class="file-icon">📄</span>
+            <span class="file-name">${f.name}</span>
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+  ` : '';
+
   const tocHTML = toc.length > 0 ? `
-    <nav class="toc">
-      <div class="toc-header">Content Tree</div>
+    <div class="toc-section">
+      <div class="section-header">Contents</div>
       <ul class="toc-list">
         ${toc.map(item => `
           <li class="toc-item toc-level-${item.level}">
@@ -52,7 +87,7 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
           </li>
         `).join('')}
       </ul>
-    </nav>
+    </div>
   ` : '';
 
   return `<!DOCTYPE html>
@@ -60,9 +95,8 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${currentFile.name} - mdmaid</title>
 
-  <!-- Mermaid -->
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
     mermaid.initialize({
@@ -72,7 +106,6 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
     });
   </script>
 
-  <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script>hljs.highlightAll();</script>
@@ -86,42 +119,82 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
       color: #24292e;
       background: #f6f8fa;
       display: grid;
-      grid-template-columns: 280px 1fr;
+      grid-template-columns: 260px 1fr;
       gap: 20px;
       padding: 20px;
       min-height: 100vh;
     }
 
-    /* Table of Contents */
-    .toc {
+    .sidebar {
       position: sticky;
       top: 20px;
       height: fit-content;
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       max-height: calc(100vh - 40px);
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
-    .toc-header {
+    .files-section, .toc-section {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .section-header {
       font-weight: 600;
-      font-size: 14px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #586069;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
       padding-bottom: 8px;
       border-bottom: 2px solid #e1e4e8;
     }
 
-    .toc-list {
+    .files-list, .toc-list {
       list-style: none;
     }
 
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.15s;
+    }
+
+    .file-item:hover {
+      background: #f6f8fa;
+    }
+
+    .file-item.active {
+      background: #0366d6;
+      color: white;
+    }
+
+    .file-item.active .file-icon {
+      opacity: 1;
+    }
+
+    .file-icon {
+      opacity: 0.6;
+      font-size: 12px;
+    }
+
+    .file-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .toc-item {
-      margin: 4px 0;
+      margin: 2px 0;
     }
 
     .toc-item a {
@@ -130,8 +203,8 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
       text-decoration: none;
       color: #24292e;
       border-radius: 4px;
-      font-size: 13px;
-      transition: all 0.2s;
+      font-size: 12px;
+      transition: all 0.15s;
     }
 
     .toc-item a:hover {
@@ -139,14 +212,12 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
       color: #0366d6;
     }
 
-    .toc-level-1 { padding-left: 0; font-weight: 600; }
+    .toc-level-1 { font-weight: 600; }
     .toc-level-2 { padding-left: 12px; }
-    .toc-level-3 { padding-left: 24px; font-size: 12px; }
-    .toc-level-4 { padding-left: 36px; font-size: 12px; }
-    .toc-level-5 { padding-left: 48px; font-size: 11px; }
-    .toc-level-6 { padding-left: 60px; font-size: 11px; }
+    .toc-level-3 { padding-left: 24px; opacity: 0.8; }
+    .toc-level-4 { padding-left: 36px; opacity: 0.7; }
+    .toc-level-5, .toc-level-6 { padding-left: 48px; opacity: 0.6; }
 
-    /* Main Content */
     .content {
       background: white;
       border-radius: 8px;
@@ -172,16 +243,9 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
     .content ul, .content ol { margin: 16px 0; padding-left: 2em; }
     .content li { margin: 4px 0; }
 
-    .content a {
-      color: #0366d6;
-      text-decoration: none;
-    }
+    .content a { color: #0366d6; text-decoration: none; }
+    .content a:hover { text-decoration: underline; }
 
-    .content a:hover {
-      text-decoration: underline;
-    }
-
-    /* Code blocks */
     .content pre {
       background: #f6f8fa;
       padding: 16px;
@@ -195,7 +259,7 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
       background: #f6f8fa;
       padding: 2px 6px;
       border-radius: 3px;
-      font-family: 'SF Mono', Monaco, Consolas, 'Courier New', monospace;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
       font-size: 0.9em;
     }
 
@@ -205,42 +269,12 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
       font-size: 0.85em;
     }
 
-    /* Mermaid diagrams */
     .content .mermaid {
       margin: 24px 0;
       text-align: center;
-      cursor: zoom-in;
     }
 
-    /* Magnifier styles */
-    .magnifier-container {
-      position: relative;
-      display: inline-block;
-    }
-
-    .magnifier-glass {
-      position: fixed;
-      width: 200px;
-      height: 200px;
-      border: 3px solid #0366d6;
-      border-radius: 50%;
-      cursor: none;
-      pointer-events: none;
-      z-index: 1000;
-      display: none;
-      background: white;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-
-    .magnifier-glass img {
-      position: absolute;
-      transform-origin: top left;
-    }
-
-    /* File path header */
     .file-path {
-      position: relative;
       font-family: 'SF Mono', Monaco, Consolas, monospace;
       font-size: 12px;
       color: #586069;
@@ -249,391 +283,98 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
       border-radius: 4px;
       margin-bottom: 20px;
       border-left: 3px solid #0366d6;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
-    /* Live reload indicator */
-    .live-indicator {
+    .print-button {
+      background: transparent;
+      border: none;
+      color: #586069;
+      font-family: inherit;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .print-button:hover {
+      background: white;
+      color: #24292e;
+    }
+
+    .status-bar {
       position: fixed;
       bottom: 20px;
       right: 20px;
+      display: flex;
+      gap: 8px;
+      z-index: 1000;
+    }
+
+    .status-indicator {
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 11px;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .live-indicator {
       background: #28a745;
       color: white;
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      z-index: 1000;
     }
 
     .live-indicator.disconnected {
       background: #dc3545;
     }
 
-    .help-indicator {
-      position: fixed;
-      bottom: 20px;
-      left: 20px;
-      background: rgba(0,0,0,0.7);
+    .file-count {
+      background: #0366d6;
       color: white;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-size: 11px;
-      font-family: 'SF Mono', Monaco, Consolas, monospace;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      z-index: 1000;
     }
 
-    .help-indicator kbd {
-      background: rgba(255,255,255,0.2);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
-      margin: 0 2px;
-    }
-
-    /* Print button */
-    .print-button {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      background: transparent;
-      border: none;
-      color: #586069;
-      font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.28em;
-      cursor: pointer;
-      padding: 4px 8px;
-      border-radius: 4px;
-      transition: all 0.2s;
-    }
-
-    .print-button:hover {
-      background: #f6f8fa;
-      color: #24292e;
-    }
-
-    /* Print styles */
     @media print {
-      body {
-        background: white;
-        grid-template-columns: 1fr;
-        padding: 0;
-      }
-
-      .toc, .live-indicator, .help-indicator, .print-button {
-        display: none !important;
-      }
-
-      .content {
-        box-shadow: none;
-        border-radius: 0;
-        max-width: 100%;
-        padding: 20px;
-      }
-
-      .file-path {
-        border: 1px solid #e1e4e8;
-      }
-
-      .mermaid {
-        page-break-inside: avoid;
-      }
-
-      pre {
-        page-break-inside: avoid;
-      }
-
-      h1, h2, h3, h4, h5, h6 {
-        page-break-after: avoid;
-      }
+      body { grid-template-columns: 1fr; padding: 0; background: white; }
+      .sidebar, .status-bar { display: none !important; }
+      .content { box-shadow: none; max-width: 100%; padding: 20px; }
     }
 
     @media (max-width: 768px) {
-      body {
-        grid-template-columns: 1fr;
-      }
-
-      .toc {
-        position: static;
-        max-height: 300px;
-      }
+      body { grid-template-columns: 1fr; }
+      .sidebar { position: static; flex-direction: row; flex-wrap: wrap; }
+      .files-section, .toc-section { flex: 1; min-width: 200px; }
     }
   </style>
 </head>
 <body>
-  ${tocHTML}
+  <div class="sidebar">
+    ${filesHTML}
+    ${tocHTML}
+  </div>
 
   <div class="content">
     <div class="file-path">
-      📄 ${filePath}
-      <button class="print-button" onclick="window.print()" title="Print this page">[print]</button>
+      <span>📄 ${currentFile.relativePath}</span>
+      <button class="print-button" onclick="window.print()">[print]</button>
     </div>
     ${content}
   </div>
 
-  <div class="magnifier-glass" id="magnifier"></div>
-  <div class="live-indicator" id="live-indicator">● Live</div>
-  <div class="help-indicator">
-    Magnifier: Hold <kbd>Z</kbd> or Click image | <kbd>ESC</kbd> to close
+  <div class="status-bar">
+    <div class="status-indicator file-count" id="file-count">${allFiles.length} file${allFiles.length !== 1 ? 's' : ''}</div>
+    <div class="status-indicator live-indicator" id="live-indicator">● Live</div>
   </div>
 
   <script>
-    // Magnifier functionality (improved from oles.md)
-    function initMagnifier() {
-      console.log('🔍 Initializing magnifier...');
-      let zKeyPressed = false;
-      let clickMagnifierActive = false;
-      let currentHoveredImage = null;
-      let lastMouseEvent = null;
-      const allMagnifierGlasses = [];
-
-      const handleKeyDown = (e) => {
-        if (e.key === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          console.log('🔑 Z key pressed');
-
-          const target = e.target;
-          const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-          if (isInput) return;
-
-          zKeyPressed = true;
-          if (currentHoveredImage) {
-            currentHoveredImage.setAttribute('data-magnifier-active', 'true');
-            if (lastMouseEvent) {
-              currentHoveredImage.dispatchEvent(new MouseEvent('mousemove', {
-                clientX: lastMouseEvent.clientX,
-                clientY: lastMouseEvent.clientY,
-                bubbles: true
-              }));
-            }
-          }
-        }
-
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          zKeyPressed = false;
-          clickMagnifierActive = false;
-          if (currentHoveredImage) {
-            currentHoveredImage.removeAttribute('data-magnifier-active');
-          }
-          allMagnifierGlasses.forEach((glass) => {
-            if (glass && glass.parentNode) {
-              glass.style.display = 'none';
-            }
-          });
-        }
-      };
-
-      const handleKeyUp = (e) => {
-        if (e.key === 'z') {
-          zKeyPressed = false;
-          if (currentHoveredImage) {
-            currentHoveredImage.removeAttribute('data-magnifier-active');
-          }
-          allMagnifierGlasses.forEach((glass) => {
-            if (glass && glass.parentNode) {
-              glass.style.display = 'none';
-            }
-          });
-        }
-      };
-
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('keyup', handleKeyUp);
-
-      const enhanceImages = () => {
-        // Try multiple selectors to find images
-        const images = document.querySelectorAll('img:not([data-no-zoom])');
-        console.log('🖼️ Found images:', images.length);
-        console.log('🔍 All img elements:', document.querySelectorAll('img').length);
-        console.log('🔍 Content div exists:', !!document.querySelector('.content'));
-
-        images.forEach((img) => {
-          console.log('📸 Enhancing image:', img.src || img.getAttribute('src'));
-          if (img.hasAttribute('data-magnifier-processed')) return;
-          img.setAttribute('data-magnifier-processed', 'true');
-
-          img.style.cursor = 'zoom-in';
-          img.style.transition = 'transform 0.2s';
-
-          let magnifierGlass = null;
-
-          const showMagnifier = (e) => {
-            lastMouseEvent = e;
-            if (!zKeyPressed && !clickMagnifierActive) return;
-            console.log('👁️ Showing magnifier');
-
-            const target = img;
-            const rect = target.getBoundingClientRect();
-
-            if (!magnifierGlass) {
-              magnifierGlass = document.createElement('div');
-              magnifierGlass.style.position = 'absolute';
-              magnifierGlass.style.width = '450px';
-              magnifierGlass.style.height = '450px';
-              magnifierGlass.style.border = '3px solid #fff';
-              magnifierGlass.style.borderRadius = '50%';
-              magnifierGlass.style.boxShadow = '0 0 15px rgba(0,0,0,0.7)';
-              magnifierGlass.style.backgroundRepeat = 'no-repeat';
-              magnifierGlass.style.pointerEvents = 'none';
-              magnifierGlass.style.zIndex = '10000';
-              magnifierGlass.style.backgroundColor = '#f0f0f0';
-
-              // Get the image src, handling both img elements and inline SVGs
-              let imgSrc = target.src || target.getAttribute('src');
-              if (imgSrc) {
-                magnifierGlass.style.backgroundImage = \`url("\${imgSrc}")\`;
-              }
-
-              document.body.appendChild(magnifierGlass);
-              allMagnifierGlasses.push(magnifierGlass);
-            }
-
-            const zoom = 2.5;
-            const glassSize = 450;
-
-            // Calculate desired position
-            let x = e.pageX - glassSize / 2;
-            let y = e.pageY - glassSize / 2;
-
-            // Keep magnifier glass within viewport bounds
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const scrollX = window.pageXOffset;
-            const scrollY = window.pageYOffset;
-
-            // Clamp to viewport with some padding
-            const padding = 10;
-            x = Math.max(scrollX + padding, Math.min(x, scrollX + viewportWidth - glassSize - padding));
-            y = Math.max(scrollY + padding, Math.min(y, scrollY + viewportHeight - glassSize - padding));
-
-            magnifierGlass.style.left = x + 'px';
-            magnifierGlass.style.top = y + 'px';
-            magnifierGlass.style.display = 'block';
-
-            // Calculate position relative to image
-            let bgX = ((e.clientX - rect.left) / rect.width) * 100;
-            let bgY = ((e.clientY - rect.top) / rect.height) * 100;
-
-            // Clamp to 0-100% to lock to edges when outside bounds
-            bgX = Math.max(0, Math.min(100, bgX));
-            bgY = Math.max(0, Math.min(100, bgY));
-
-            const bgSize = \`\${target.width * zoom}px \${target.height * zoom}px\`;
-            magnifierGlass.style.backgroundSize = bgSize;
-            magnifierGlass.style.backgroundPosition = \`\${bgX}% \${bgY}%\`;
-          };
-
-          const hideMagnifier = () => {
-            if (magnifierGlass) {
-              magnifierGlass.style.display = 'none';
-            }
-          };
-
-          const removeMagnifier = () => {
-            if (magnifierGlass) {
-              const index = allMagnifierGlasses.indexOf(magnifierGlass);
-              if (index > -1) {
-                allMagnifierGlasses.splice(index, 1);
-              }
-              magnifierGlass.remove();
-              magnifierGlass = null;
-            }
-          };
-
-          const globalMouseMove = (e) => {
-            lastMouseEvent = e;
-            if ((!zKeyPressed && !clickMagnifierActive) || currentHoveredImage !== img) return;
-            showMagnifier(e);
-          };
-
-          const handleClick = (e) => {
-            e.preventDefault();
-            clickMagnifierActive = !clickMagnifierActive;
-            if (clickMagnifierActive) {
-              showMagnifier(e);
-            } else {
-              hideMagnifier();
-            }
-          };
-
-          img.addEventListener('mouseenter', (e) => {
-            console.log('🐭 Mouse entered image');
-            currentHoveredImage = img;
-            lastMouseEvent = e;
-            img.addEventListener('mousemove', showMagnifier);
-            document.addEventListener('mousemove', globalMouseMove);
-          });
-
-          img.addEventListener('mouseleave', (e) => {
-            if (!clickMagnifierActive) {
-              const rect = img.getBoundingClientRect();
-              const buffer = 200;
-              const inBufferZone =
-                e.clientX >= rect.left - buffer &&
-                e.clientX <= rect.right + buffer &&
-                e.clientY >= rect.top - buffer &&
-                e.clientY <= rect.bottom + buffer;
-
-              if (!inBufferZone) {
-                currentHoveredImage = null;
-                img.removeAttribute('data-magnifier-active');
-                img.removeEventListener('mousemove', showMagnifier);
-                document.removeEventListener('mousemove', globalMouseMove);
-                hideMagnifier();
-              }
-            }
-          });
-
-          img.addEventListener('click', handleClick);
-
-          const cleanupObserver = new MutationObserver(() => {
-            if (!document.body.contains(img)) {
-              removeMagnifier();
-              cleanupObserver.disconnect();
-            }
-          });
-          cleanupObserver.observe(document.body, { childList: true, subtree: true });
-        });
-      };
-
-      enhanceImages();
-
-      const observer = new MutationObserver(() => {
-        enhanceImages();
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-
-      // Listen for manual re-enhance trigger
-      window.addEventListener('reenhance', () => {
-        console.log('🔄 Re-enhancing images...');
-        enhanceImages();
-      });
-    }
-
-    // Initialize immediately and after mermaid renders
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initMagnifier);
-    } else {
-      initMagnifier();
-    }
-
-    // Also run after a delay to catch late-loading content
-    setTimeout(() => {
-      console.log('⏰ Re-running enhancer after delay...');
-      const event = new Event('reenhance');
-      window.dispatchEvent(event);
-    }, 2000);
-
-    // WebSocket for live reload
+    // WebSocket connection
     const ws = new WebSocket('ws://' + location.host);
     const indicator = document.getElementById('live-indicator');
+    const fileCount = document.getElementById('file-count');
 
     ws.onopen = () => {
       indicator.textContent = '● Live';
@@ -646,105 +387,319 @@ function generateHTMLTemplate(content: string, title: string, filePath: string):
     };
 
     ws.onmessage = (event) => {
-      if (event.data === 'reload') {
-        location.reload();
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.action === 'reload') {
+          location.reload();
+        } else if (msg.action === 'update') {
+          // Full page update with new content
+          location.reload();
+        } else if (msg.action === 'files') {
+          // Update file count
+          fileCount.textContent = msg.files.length + ' file' + (msg.files.length !== 1 ? 's' : '');
+        }
+      } catch {
+        // Legacy: plain text reload message
+        if (event.data === 'reload') {
+          location.reload();
+        }
       }
     };
 
-    // Smooth scroll for TOC links
-    document.querySelectorAll('.toc a').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const id = link.getAttribute('href').substring(1);
-        const element = document.getElementById(id);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-          // Highlight clicked item
-          document.querySelectorAll('.toc a').forEach(a => a.style.background = '');
-          link.style.background = '#f6f8fa';
+    // File switching via sidebar click
+    document.querySelectorAll('.file-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const file = item.dataset.file;
+        if (file) {
+          ws.send(JSON.stringify({ action: 'switch', file }));
         }
       });
     });
+
+    // TOC smooth scroll
+    document.querySelectorAll('.toc-item a').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = link.getAttribute('href').substring(1);
+        const el = document.getElementById(id);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    // Mermaid re-init after dynamic content
+    setTimeout(() => {
+      if (window.mermaid) {
+        window.mermaid.contentLoaded();
+      }
+    }, 500);
   </script>
 </body>
 </html>`;
 }
 
 /**
- * Start development server
+ * Start multi-file development server
  */
-export async function startServer(filePath: string, options: ServerOptions = {}) {
-  const port = options.port || 3333;
+export async function startServer(
+  filePathOrPaths: string | string[],
+  options: ServerOptions = {}
+): Promise<{ server: ReturnType<typeof createServer>; port: number; addFile: (f: string) => void; removeFile: (f: string) => void; switchFile: (f: string) => void }> {
   const host = options.host || 'localhost';
-  const fullPath = resolve(filePath);
 
-  let currentHTML = '';
+  // Normalize to array
+  const initialPaths = Array.isArray(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
 
-  // Render initial content
-  async function renderFile() {
+  // Determine base directory (common parent of all files)
+  const baseDir = initialPaths.length === 1
+    ? resolve(initialPaths[0], '..')
+    : process.cwd();
+
+  // Server state
+  const state: ServerState = {
+    files: new Map(),
+    currentFile: null,
+    baseDir,
+  };
+
+  // File watchers
+  const watchers: Map<string, FSWatcher> = new Map();
+  const clients = new Set<WebSocket>();
+
+  // Add a file to tracking
+  function addFile(filePath: string): FileInfo | null {
+    const fullPath = resolve(filePath);
+    if (!existsSync(fullPath)) {
+      console.error(`File not found: ${fullPath}`);
+      return null;
+    }
+
+    if (state.files.has(fullPath)) {
+      return state.files.get(fullPath)!;
+    }
+
+    const info: FileInfo = {
+      path: fullPath,
+      name: basename(fullPath),
+      relativePath: relative(state.baseDir, fullPath) || basename(fullPath),
+    };
+
+    state.files.set(fullPath, info);
+
+    // Set as current if first file
+    if (!state.currentFile) {
+      state.currentFile = fullPath;
+    }
+
+    // Watch the file
+    if (options.watch) {
+      const watcher = watch(fullPath, { persistent: true, ignoreInitial: true });
+      watcher.on('change', async () => {
+        console.log(`📝 File changed: ${info.name}`);
+        broadcastReload();
+      });
+      watchers.set(fullPath, watcher);
+    }
+
+    console.log(`📁 Added file: ${info.name}`);
+    broadcastFileList();
+    return info;
+  }
+
+  // Remove a file from tracking
+  function removeFile(filePath: string): void {
+    const fullPath = resolve(filePath);
+    if (!state.files.has(fullPath)) return;
+
+    const info = state.files.get(fullPath)!;
+    state.files.delete(fullPath);
+
+    // Stop watching
+    const watcher = watchers.get(fullPath);
+    if (watcher) {
+      watcher.close();
+      watchers.delete(fullPath);
+    }
+
+    // Switch to another file if this was current
+    if (state.currentFile === fullPath) {
+      const remaining = Array.from(state.files.keys());
+      state.currentFile = remaining.length > 0 ? remaining[0] : null;
+    }
+
+    console.log(`📁 Removed file: ${info.name}`);
+    broadcastFileList();
+    broadcastReload();
+  }
+
+  // Switch current file
+  function switchFile(filePath: string): void {
+    const fullPath = resolve(filePath);
+    if (!state.files.has(fullPath)) {
+      // Auto-add if not tracked
+      addFile(filePath);
+    }
+
+    if (state.files.has(fullPath)) {
+      state.currentFile = fullPath;
+      console.log(`📄 Switched to: ${state.files.get(fullPath)!.name}`);
+      broadcastReload();
+    }
+  }
+
+  // Broadcast reload to all clients
+  function broadcastReload(): void {
+    const msg = JSON.stringify({ action: 'reload' });
+    clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    });
+  }
+
+  // Broadcast file list to all clients
+  function broadcastFileList(): void {
+    const files = Array.from(state.files.values()).map(f => ({
+      path: f.path,
+      name: f.name,
+      active: f.path === state.currentFile,
+    }));
+    const msg = JSON.stringify({ action: 'files', files });
+    clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    });
+  }
+
+  // Render current file
+  async function renderCurrentFile(): Promise<string> {
+    if (!state.currentFile || !state.files.has(state.currentFile)) {
+      return '<h1>No file selected</h1><p>Add a markdown file to preview.</p>';
+    }
+
+    const currentInfo = state.files.get(state.currentFile)!;
+    const allFiles = Array.from(state.files.values());
+
     try {
-      const markdown = readFileSync(fullPath, 'utf-8');
+      const markdown = readFileSync(state.currentFile, 'utf-8');
       const html = await renderMarkdown(markdown);
-      const title = basename(filePath, extname(filePath));
-      currentHTML = generateHTMLTemplate(html, title, filePath);
-      return currentHTML;
+      return generateHTMLTemplate(html, currentInfo, allFiles, state.baseDir);
     } catch (error: any) {
       return `<h1>Error</h1><pre>${error.message}</pre>`;
     }
   }
 
-  await renderFile();
+  // Add initial files
+  for (const p of initialPaths) {
+    addFile(p);
+  }
 
   // Create HTTP server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // API endpoint for adding files
+    if (req.method === 'POST' && req.url === '/api/add') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const { file } = JSON.parse(body);
+          addFile(file);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch {
+          res.writeHead(400);
+          res.end('Invalid request');
+        }
+      });
+      return;
+    }
+
+    // API endpoint for file list
+    if (req.url === '/api/files') {
+      const files = Array.from(state.files.values());
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ files, current: state.currentFile }));
+      return;
+    }
+
+    // Main page
+    const html = await renderCurrentFile();
     res.setHeader('Content-Type', 'text/html');
-    res.end(currentHTML);
+    res.end(html);
   });
 
   // Create WebSocket server
   const wss = new WebSocketServer({ server });
-  const clients = new Set<WebSocket>();
 
   wss.on('connection', (ws) => {
     clients.add(ws);
+
+    // Send current file list on connect
+    const files = Array.from(state.files.values()).map(f => ({
+      path: f.path,
+      name: f.name,
+      active: f.path === state.currentFile,
+    }));
+    ws.send(JSON.stringify({ action: 'files', files }));
+
+    ws.on('message', (data) => {
+      try {
+        const msg: WsMessage = JSON.parse(data.toString());
+
+        switch (msg.action) {
+          case 'switch':
+            if (msg.file) switchFile(msg.file);
+            break;
+          case 'add':
+            if (msg.file) addFile(msg.file);
+            break;
+          case 'remove':
+            if (msg.file) removeFile(msg.file);
+            break;
+          case 'list':
+            const fileList = Array.from(state.files.values());
+            ws.send(JSON.stringify({ action: 'files', files: fileList }));
+            break;
+        }
+      } catch (e) {
+        console.error('Invalid WS message:', e);
+      }
+    });
+
     ws.on('close', () => clients.delete(ws));
   });
 
-  // Watch for file changes
-  if (options.watch) {
-    const watcher = watch(fullPath, {
-      persistent: true,
-      ignoreInitial: true,
-    });
+  // Start listening
+  return new Promise((resolvePromise) => {
+    // Use port 0 to let OS assign if not specified
+    const requestedPort = options.port ?? 0;
 
-    watcher.on('change', async () => {
-      console.log(`📝 File changed: ${filePath}`);
-      await renderFile();
+    server.listen(requestedPort, host, () => {
+      const addr = server.address();
+      const actualPort = typeof addr === 'object' && addr ? addr.port : requestedPort;
 
-      // Notify all connected clients
-      clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send('reload');
-        }
-      });
+      // Output port for nvim to parse
+      console.log(`PORT:${actualPort}`);
 
-      console.log(`🔄 Reloaded ${clients.size} client(s)`);
-    });
-  }
-
-  server.listen(port, host, () => {
-    console.log(`
+      console.log(`
 ┌─────────────────────────────────────────┐
 │  mdmaid dev server                      │
 ├─────────────────────────────────────────┤
-│  URL:      http://${host}:${port}     │
-│  File:     ${filePath}                  │
-│  Watch:    ${options.watch ? '✓ enabled' : '✗ disabled'}              │
-│  Features: ✓ TOC  ✓ Magnifier  ✓ Live  │
+│  URL:      http://${host}:${actualPort}${' '.repeat(Math.max(0, 5 - String(actualPort).length))}│
+│  Files:    ${state.files.size} tracked${' '.repeat(20)}│
+│  Watch:    ${options.watch ? '✓ enabled' : '✗ disabled'}${' '.repeat(14)}│
 └─────────────────────────────────────────┘
-    `);
-  });
+      `);
 
-  return server;
+      resolvePromise({
+        server,
+        port: actualPort,
+        addFile,
+        removeFile,
+        switchFile,
+      });
+    });
+  });
 }
