@@ -1,0 +1,65 @@
+{
+  "name": "mdmaid",
+  "version": "0.1.0",
+  "description": "Markdown + Mermaid made simple - A powerful markdown renderer with first-class Mermaid diagram support",
+  "main": "dist/lib/index.js",
+  "types": "dist/lib/index.d.ts",
+  "bin": {
+    "mdmaid": "bin/mdmaid.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "fonts"
+  ],
+  "exports": {
+    ".": "./dist/lib/index.js",
+    "./server": "./dist/server/index.js",
+    "./cli": "./dist/cli/index.js",
+    "./ssr": "./dist/core/mermaid-ssr.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "markdown",
+    "mermaid",
+    "diagrams",
+    "renderer",
+    "cli",
+    "neovim",
+    "preview"
+  ],
+  "author": "Oleksandr Besan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/olesbesan/mdmaid"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "mermaid": "^11.12.2",
+    "remark": "^15.0.1",
+    "remark-autolink-headings": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-html": "^16.0.1",
+    "remark-slug": "^7.0.1",
+    "unist-util-visit": "^5.0.0",
+    "ws": "^8.14.2"
+  },
+  "peerDependencies": {
+    "puppeteer": "^23.11.1"
+  },
+  "peerDependenciesMeta": {
+    "puppeteer": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.8",
+    "@types/ws": "^8.5.8",
+    "typescript": "^5.5.2"
+  }
+}
