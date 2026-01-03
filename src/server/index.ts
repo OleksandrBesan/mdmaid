@@ -101,8 +101,25 @@ function generateHTMLTemplate(
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
     mermaid.initialize({
       startOnLoad: true,
-      theme: 'default',
-      securityLevel: 'loose'
+      theme: 'base',
+      securityLevel: 'loose',
+      fontFamily: '"Departure Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
+      fontSize: 11,
+      themeVariables: {
+        primaryColor: '#ffffff',
+        primaryTextColor: '#000000',
+        primaryBorderColor: '#000000',
+        lineColor: '#000000',
+        secondaryColor: '#f5f5f5',
+        tertiaryColor: '#e5e5e5',
+        background: 'transparent',
+        mainBkg: 'transparent',
+        nodeBorder: '#000000',
+        clusterBkg: '#f5f5f5',
+        clusterBorder: '#000000',
+        titleColor: '#000000',
+        edgeLabelBackground: 'transparent',
+      }
     });
   </script>
 
@@ -111,13 +128,32 @@ function generateHTMLTemplate(
   <script>hljs.highlightAll();</script>
 
   <style>
+    @font-face {
+      font-family: 'Departure Mono';
+      src: url('https://cdn.jsdelivr.net/gh/nicowesse/Departure-Mono@1.422/fonts/webfonts/DepartureMono-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
+    :root {
+      --font-mono: 'Departure Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f6f8fa;
+      --text-primary: #000000;
+      --text-secondary: #586069;
+      --border-color: #e1e4e8;
+      --accent-color: #000000;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-family: var(--font-mono);
+      font-size: 13px;
       line-height: 1.6;
-      color: #24292e;
-      background: #f6f8fa;
+      color: var(--text-primary);
+      background: var(--bg-secondary);
       display: grid;
       grid-template-columns: 260px 1fr;
       gap: 20px;
@@ -137,21 +173,21 @@ function generateHTMLTemplate(
     }
 
     .files-section, .toc-section {
-      background: white;
-      border-radius: 8px;
+      background: var(--bg-primary);
+      border-radius: 0;
       padding: 16px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border: 1px solid var(--text-primary);
     }
 
     .section-header {
-      font-weight: 600;
-      font-size: 12px;
+      font-weight: 400;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: #586069;
+      color: var(--text-secondary);
       margin-bottom: 12px;
       padding-bottom: 8px;
-      border-bottom: 2px solid #e1e4e8;
+      border-bottom: 1px dashed var(--text-primary);
     }
 
     .files-list, .toc-list {
@@ -163,19 +199,19 @@ function generateHTMLTemplate(
       align-items: center;
       gap: 8px;
       padding: 6px 10px;
-      border-radius: 4px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 11px;
       transition: all 0.15s;
+      border: 1px solid transparent;
     }
 
     .file-item:hover {
-      background: #f6f8fa;
+      border-color: var(--text-primary);
     }
 
     .file-item.active {
-      background: #0366d6;
-      color: white;
+      background: var(--text-primary);
+      color: var(--bg-primary);
     }
 
     .file-item.active .file-icon {
@@ -184,7 +220,7 @@ function generateHTMLTemplate(
 
     .file-icon {
       opacity: 0.6;
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .file-name {
@@ -201,15 +237,14 @@ function generateHTMLTemplate(
       display: block;
       padding: 4px 8px;
       text-decoration: none;
-      color: #24292e;
-      border-radius: 4px;
-      font-size: 12px;
+      color: var(--text-primary);
+      font-size: 11px;
       transition: all 0.15s;
+      border-bottom: 1px dashed transparent;
     }
 
     .toc-item a:hover {
-      background: #f6f8fa;
-      color: #0366d6;
+      border-bottom-color: var(--text-primary);
     }
 
     .toc-level-1 { font-weight: 600; }
@@ -219,70 +254,78 @@ function generateHTMLTemplate(
     .toc-level-5, .toc-level-6 { padding-left: 48px; opacity: 0.6; }
 
     .content {
-      background: white;
-      border-radius: 8px;
+      background: var(--bg-primary);
+      border: 1px solid var(--text-primary);
       padding: 40px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       max-width: 900px;
       position: relative;
     }
 
     .content h1, .content h2, .content h3,
     .content h4, .content h5, .content h6 {
-      margin-top: 24px;
-      margin-bottom: 16px;
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
       font-weight: 600;
       line-height: 1.25;
     }
 
-    .content h1 { font-size: 2em; border-bottom: 1px solid #e1e4e8; padding-bottom: 8px; }
-    .content h2 { font-size: 1.5em; border-bottom: 1px solid #e1e4e8; padding-bottom: 8px; }
-    .content h3 { font-size: 1.25em; }
+    .content h1 { font-size: 1.5em; border-bottom: 1px solid var(--text-primary); padding-bottom: 8px; }
+    .content h2 { font-size: 1.25em; border-bottom: 1px dashed var(--text-primary); padding-bottom: 8px; }
+    .content h3 { font-size: 1.1em; margin-top: 1.25em; }
 
-    .content p { margin: 16px 0; }
-    .content ul, .content ol { margin: 16px 0; padding-left: 2em; }
+    .content p { margin: 1em 0; }
+    .content ul, .content ol { margin: 1em 0; padding-left: 2em; }
     .content li { margin: 4px 0; }
 
-    .content a { color: #0366d6; text-decoration: none; }
-    .content a:hover { text-decoration: underline; }
+    .content a {
+      color: var(--text-primary);
+      text-decoration: none;
+      border-bottom: 1px dashed var(--text-primary);
+      transition: border-bottom 0.15s;
+    }
+    .content a:hover {
+      border-bottom: 2px solid var(--text-primary);
+    }
 
     .content pre {
-      background: #f6f8fa;
+      background: transparent;
       padding: 16px;
-      border-radius: 6px;
       overflow-x: auto;
       margin: 16px 0;
-      border: 1px solid #e1e4e8;
+      border: 1px solid var(--text-primary);
     }
 
     .content code {
-      background: #f6f8fa;
+      background: var(--bg-secondary);
       padding: 2px 6px;
-      border-radius: 3px;
-      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-family: var(--font-mono);
       font-size: 0.9em;
     }
 
     .content pre code {
       background: none;
       padding: 0;
-      font-size: 0.85em;
+      font-size: 11px;
     }
 
     .content .mermaid {
       margin: 24px 0;
       text-align: center;
+      background: transparent !important;
+    }
+
+    .content .mermaid svg {
+      background: transparent !important;
     }
 
     .file-path {
-      font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 12px;
-      color: #586069;
-      background: #f6f8fa;
-      padding: 8px 12px;
-      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: transparent;
+      padding: 8px 0;
       margin-bottom: 20px;
-      border-left: 3px solid #0366d6;
+      border-bottom: 1px dashed var(--text-primary);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -290,21 +333,19 @@ function generateHTMLTemplate(
 
     .print-button {
       background: transparent;
-      border: none;
-      color: #586069;
-      font-family: inherit;
+      border: 1px solid var(--text-primary);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
+      text-transform: lowercase;
       cursor: pointer;
       padding: 4px 8px;
-      border-radius: 4px;
       transition: all 0.15s;
     }
 
     .print-button:hover {
-      background: white;
-      color: #24292e;
+      background: var(--text-primary);
+      color: var(--bg-primary);
     }
 
     .status-bar {
@@ -318,24 +359,23 @@ function generateHTMLTemplate(
 
     .status-indicator {
       padding: 6px 12px;
-      border-radius: 16px;
       font-size: 11px;
-      font-weight: 600;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      font-family: var(--font-mono);
+      border: 1px solid var(--text-primary);
+      background: var(--bg-primary);
     }
 
     .live-indicator {
-      background: #28a745;
-      color: white;
+      color: var(--text-primary);
     }
 
     .live-indicator.disconnected {
-      background: #dc3545;
+      background: var(--text-primary);
+      color: var(--bg-primary);
     }
 
     .file-count {
-      background: #0366d6;
-      color: white;
+      color: var(--text-secondary);
     }
 
     @media print {
