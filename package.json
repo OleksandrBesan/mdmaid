@@ -10,7 +10,7 @@
   "files": [
     "dist",
     "bin",
-    "fonts"
+    "assets"
   ],
   "exports": {
     ".": "./dist/lib/index.js",
@@ -36,7 +36,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/olesbesan/mdmaid"
+    "url": "https://github.com/OleksandrBesan/mdmaid"
   },
   "dependencies": {
     "chokidar": "^3.5.3",
