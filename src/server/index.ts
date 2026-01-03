@@ -250,6 +250,15 @@ function generateHTMLTemplate(
       --accent-color: #000000;
     }
 
+    .dark {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #111111;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0a0;
+      --border-color: #333333;
+      --accent-color: #ffffff;
+    }
+
     body {
       font-family: var(--font-mono);
       font-size: 13px;
@@ -466,6 +475,49 @@ function generateHTMLTemplate(
       stroke-dasharray: 4,4 !important;
     }
 
+    /* Dark mode mermaid - use invert filter like blog */
+    .dark .content .mermaid svg {
+      filter: invert(1) hue-rotate(180deg);
+    }
+
+    /* Dark mode code highlighting */
+    .dark .hljs {
+      background: transparent !important;
+      color: #e5e7eb !important;
+    }
+
+    .dark .hljs-keyword { color: #ff79c6 !important; }
+    .dark .hljs-string { color: #f1fa8c !important; }
+    .dark .hljs-number { color: #bd93f9 !important; }
+    .dark .hljs-comment { color: #6272a4 !important; }
+    .dark .hljs-function { color: #50fa7b !important; }
+    .dark .hljs-title { color: #8be9fd !important; }
+    .dark .hljs-params { color: #ffb86c !important; }
+    .dark .hljs-built_in { color: #8be9fd !important; }
+    .dark .hljs-literal { color: #bd93f9 !important; }
+    .dark .hljs-attr { color: #50fa7b !important; }
+
+    /* Theme toggle button */
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1001;
+      background: var(--bg-primary);
+      border: 1px solid var(--text-primary);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--text-primary);
+      color: var(--bg-primary);
+    }
+
     .file-path {
       font-family: var(--font-mono);
       font-size: 11px;
@@ -639,6 +691,8 @@ function generateHTMLTemplate(
     ${content}
   </div>
 
+  <button class="theme-toggle" id="theme-toggle">[dark]</button>
+
   <div class="status-bar">
     <div class="status-indicator file-count" id="file-count">${allFiles.length} file${allFiles.length !== 1 ? 's' : ''}</div>
     <div class="status-indicator live-indicator" id="live-indicator">● Live</div>
@@ -660,6 +714,7 @@ function generateHTMLTemplate(
       <div class="help-section">
         <div class="help-section-title">interface</div>
         <div class="help-row"><span class="help-key">t</span><span class="help-desc">toggle sidebar</span></div>
+        <div class="help-row"><span class="help-key">D</span><span class="help-desc">toggle dark mode</span></div>
         <div class="help-row"><span class="help-key">?</span><span class="help-desc">toggle help</span></div>
         <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">close overlays</span></div>
       </div>
@@ -678,6 +733,55 @@ function generateHTMLTemplate(
   </div>
 
   <script>
+    // ═══════════════════════════════════════════════════════════════
+    // Theme Switching (dark/light mode)
+    // ═══════════════════════════════════════════════════════════════
+    (function() {
+      const STORAGE_KEY = 'mdmaid-theme';
+      const toggle = document.getElementById('theme-toggle');
+
+      function getSystemTheme() {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
+      function getStoredTheme() {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        return stored === 'dark' || stored === 'light' ? stored : null;
+      }
+
+      function applyTheme(theme) {
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+          toggle.textContent = '[light]';
+        } else {
+          document.documentElement.classList.remove('dark');
+          toggle.textContent = '[dark]';
+        }
+      }
+
+      function getCurrentTheme() {
+        return getStoredTheme() || getSystemTheme();
+      }
+
+      // Apply theme on load
+      applyTheme(getCurrentTheme());
+
+      // Toggle handler
+      toggle.addEventListener('click', () => {
+        const current = getCurrentTheme();
+        const next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(STORAGE_KEY, next);
+        applyTheme(next);
+      });
+
+      // Listen for system theme changes
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (!getStoredTheme()) {
+          applyTheme(getSystemTheme());
+        }
+      });
+    })();
+
     // WebSocket connection
     const ws = new WebSocket('ws://' + location.host);
     const indicator = document.getElementById('live-indicator');
@@ -808,6 +912,13 @@ function generateHTMLTemplate(
       // t - toggle sidebar
       if (e.key === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         toggleSidebar();
+        e.preventDefault();
+        return;
+      }
+
+      // D - toggle dark mode
+      if (e.key === 'D' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        document.getElementById('theme-toggle').click();
         e.preventDefault();
         return;
       }
