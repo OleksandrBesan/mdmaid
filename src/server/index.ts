@@ -100,6 +100,7 @@ function generateHTMLTemplate(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${currentFile.name} - mdmaid</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 
   <!-- Preload font for mermaid -->
   <link rel="preload" href="/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
@@ -1245,6 +1246,24 @@ export async function startServer(
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ files, current: state.currentFile }));
       return;
+    }
+
+    // Serve favicon
+    if (req.url === '/favicon.svg') {
+      try {
+        const iconPath = resolve(__dirname, '../../assets/icons/favicon.svg');
+        const iconData = readFileSync(iconPath, 'utf-8');
+        res.writeHead(200, {
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'public, max-age=31536000',
+        });
+        res.end(iconData);
+        return;
+      } catch {
+        res.writeHead(404);
+        res.end('Favicon not found');
+        return;
+      }
     }
 
     // Serve font file
