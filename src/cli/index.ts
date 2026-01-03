@@ -7,6 +7,7 @@ import crypto from 'crypto';
 interface CliArgs {
   command: string;
   input?: string;
+  inputs: string[];
   output?: string;
   port?: number;
   watch?: boolean;
@@ -18,6 +19,7 @@ interface CliArgs {
 function parseArgs(args: string[]): CliArgs {
   const parsed: CliArgs = {
     command: 'render', // default command
+    inputs: [],
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -66,7 +68,10 @@ function parseArgs(args: string[]): CliArgs {
         break;
       default:
         if (!arg.startsWith('-')) {
-          parsed.input = arg;
+          parsed.inputs.push(arg);
+          if (!parsed.input) {
+            parsed.input = arg; // Keep first as primary for backwards compat
+          }
         }
     }
   }
@@ -207,9 +212,9 @@ ${html}
 async function serveCommand(args: CliArgs) {
   const { startServer } = await import('../server/index');
 
-  if (!args.input) {
-    console.error('Error: Input file required for serve command');
-    console.error('Usage: mdmaid serve <file.md> [--watch] [--port PORT]');
+  if (args.inputs.length === 0) {
+    console.error('Error: Input file(s) required for serve command');
+    console.error('Usage: mdmaid serve <file.md> [file2.md ...] [--watch] [--port PORT]');
     process.exit(1);
   }
 
@@ -218,7 +223,9 @@ async function serveCommand(args: CliArgs) {
     watch: args.watch || false,
   };
 
-  await startServer(args.input, options);
+  // Support multiple files
+  const files = args.inputs.length === 1 ? args.inputs[0] : args.inputs;
+  await startServer(files, options);
 }
 
 interface MdmaidConfig {

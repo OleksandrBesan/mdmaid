@@ -79,13 +79,17 @@ function generateHTMLTemplate(
 
   const tocHTML = toc.length > 0 ? `
     <div class="toc-section">
-      <div class="section-header">Contents</div>
+      <div class="section-header">Contents <span style="font-weight:normal;opacity:0.6">// press code to jump</span></div>
       <ul class="toc-list">
-        ${toc.map(item => `
-          <li class="toc-item toc-level-${item.level}">
-            <a href="#${item.id}">${item.text}</a>
+        ${toc.map((item, idx) => {
+          const group = Math.floor(idx / 9);
+          const num = (idx % 9) + 1;
+          const code = String.fromCharCode(97 + group) + num;
+          return `
+          <li class="toc-item toc-level-${item.level}" data-toc-idx="${idx}">
+            <a href="#${item.id}">${item.text}<span class="toc-code">[${code}]</span></a>
           </li>
-        `).join('')}
+        `}).join('')}
       </ul>
     </div>
   ` : '';
@@ -130,7 +134,7 @@ function generateHTMLTemplate(
   <style>
     @font-face {
       font-family: 'Departure Mono';
-      src: url('https://cdn.jsdelivr.net/gh/nicowesse/Departure-Mono@1.422/fonts/webfonts/DepartureMono-Regular.woff2') format('woff2');
+      src: url('/fonts/DepartureMono-Regular.woff2') format('woff2');
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -389,6 +393,84 @@ function generateHTMLTemplate(
       .sidebar { position: static; flex-direction: row; flex-wrap: wrap; }
       .files-section, .toc-section { flex: 1; min-width: 200px; }
     }
+
+    /* Sidebar toggle */
+    .sidebar.hidden { display: none; }
+    body.sidebar-hidden { grid-template-columns: 1fr; }
+
+    /* Help overlay */
+    .help-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
+    }
+
+    .help-overlay.open { display: flex; justify-content: center; padding-top: 80px; }
+
+    .help-content {
+      background: var(--bg-primary);
+      border: 1px solid var(--text-primary);
+      padding: 24px;
+      max-width: 600px;
+      width: 100%;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+    }
+
+    .help-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px dashed var(--text-primary);
+    }
+
+    .help-section {
+      margin-bottom: 20px;
+    }
+
+    .help-section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .help-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      font-size: 11px;
+      border-bottom: 1px dotted var(--border-color);
+    }
+
+    .help-key {
+      font-family: var(--font-mono);
+      background: var(--bg-secondary);
+      padding: 2px 6px;
+      border: 1px solid var(--border-color);
+    }
+
+    .help-desc {
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      font-size: 10px;
+    }
+
+    /* TOC hotkey codes */
+    .toc-code {
+      color: var(--text-secondary);
+      font-size: 10px;
+      margin-left: 4px;
+    }
   </style>
 </head>
 <body>
@@ -408,6 +490,39 @@ function generateHTMLTemplate(
   <div class="status-bar">
     <div class="status-indicator file-count" id="file-count">${allFiles.length} file${allFiles.length !== 1 ? 's' : ''}</div>
     <div class="status-indicator live-indicator" id="live-indicator">● Live</div>
+  </div>
+
+  <!-- Help Overlay -->
+  <div class="help-overlay" id="help-overlay">
+    <div class="help-content" onclick="event.stopPropagation()">
+      <div class="help-title">keyboard shortcuts</div>
+
+      <div class="help-section">
+        <div class="help-section-title">navigation</div>
+        <div class="help-row"><span class="help-key">j / k</span><span class="help-desc">scroll down / up</span></div>
+        <div class="help-row"><span class="help-key">d / u</span><span class="help-desc">page down / up</span></div>
+        <div class="help-row"><span class="help-key">gg / G</span><span class="help-desc">top / bottom</span></div>
+        <div class="help-row"><span class="help-key">b</span><span class="help-desc">go back</span></div>
+      </div>
+
+      <div class="help-section">
+        <div class="help-section-title">interface</div>
+        <div class="help-row"><span class="help-key">t</span><span class="help-desc">toggle sidebar</span></div>
+        <div class="help-row"><span class="help-key">?</span><span class="help-desc">toggle help</span></div>
+        <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">close overlays</span></div>
+      </div>
+
+      <div class="help-section">
+        <div class="help-section-title">images</div>
+        <div class="help-row"><span class="help-key">z (hold)</span><span class="help-desc">magnifier</span></div>
+        <div class="help-row"><span class="help-key">click</span><span class="help-desc">toggle lock</span></div>
+      </div>
+
+      <div class="help-section">
+        <div class="help-section-title">quick jump</div>
+        <div class="help-row"><span class="help-key">a1-z9</span><span class="help-desc">jump to toc item</span></div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -474,6 +589,311 @@ function generateHTMLTemplate(
         window.mermaid.contentLoaded();
       }
     }, 500);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Hotkeys (vim-like scrolling + image magnifier)
+    // ═══════════════════════════════════════════════════════════════
+
+    function isTypingTarget(el) {
+      if (!el) return false;
+      const tag = el.tagName?.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || el.isContentEditable;
+    }
+
+    // Help overlay
+    const helpOverlay = document.getElementById('help-overlay');
+    const sidebar = document.querySelector('.sidebar');
+
+    function toggleHelp() {
+      helpOverlay.classList.toggle('open');
+    }
+
+    function closeHelp() {
+      helpOverlay.classList.remove('open');
+    }
+
+    function toggleSidebar() {
+      sidebar.classList.toggle('hidden');
+      document.body.classList.toggle('sidebar-hidden');
+    }
+
+    helpOverlay.addEventListener('click', closeHelp);
+
+    // Quick jump sequence state
+    let seqLetter = null;
+    let seqTimer = null;
+
+    function clearSeq() {
+      if (seqTimer) clearTimeout(seqTimer);
+      seqLetter = null;
+      seqTimer = null;
+    }
+
+    // Get TOC items for quick jump
+    function getTocItems() {
+      return Array.from(document.querySelectorAll('.toc-item a'));
+    }
+
+    // Vim-like scrolling + interface hotkeys
+    document.addEventListener('keydown', (e) => {
+      if (isTypingTarget(e.target)) return;
+
+      // ? - toggle help
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        toggleHelp();
+        e.preventDefault();
+        return;
+      }
+
+      // Escape - close overlays
+      if (e.key === 'Escape') {
+        closeHelp();
+        clearSeq();
+        e.preventDefault();
+        return;
+      }
+
+      // t - toggle sidebar
+      if (e.key === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        toggleSidebar();
+        e.preventDefault();
+        return;
+      }
+
+      // j/k - scroll up/down
+      if (!e.shiftKey && (e.key === 'j' || e.key === 'k')) {
+        const delta = e.key === 'j' ? 120 : -120;
+        window.scrollBy({ top: delta, behavior: 'smooth' });
+        e.preventDefault();
+        return;
+      }
+
+      // u/d - page up/down (80% viewport)
+      if (e.key === 'u' || e.key === 'd') {
+        const delta = e.key === 'd' ? window.innerHeight * 0.8 : -window.innerHeight * 0.8;
+        window.scrollBy({ top: delta, behavior: 'smooth' });
+        e.preventDefault();
+        return;
+      }
+
+      // gg - scroll to top
+      if (e.key === 'g' && !e.shiftKey) {
+        let handled = false;
+        const once = (ev) => {
+          if (ev.key === 'g') {
+            handled = true;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            ev.preventDefault();
+          }
+          window.removeEventListener('keydown', once, true);
+        };
+        window.addEventListener('keydown', once, true);
+        setTimeout(() => {
+          if (!handled) window.removeEventListener('keydown', once, true);
+        }, 250);
+        return;
+      }
+
+      // G - scroll to bottom
+      if (e.key === 'G' && e.shiftKey) {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        e.preventDefault();
+        return;
+      }
+
+      // b - go back
+      if (e.key === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        window.history.back();
+        e.preventDefault();
+        return;
+      }
+
+      // Quick jump: letter (a-z) then digit (1-9)
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const ch = e.key.toLowerCase();
+        if (/^[a-z]$/.test(ch) && ch !== 'j' && ch !== 'k' && ch !== 'u' && ch !== 'd' && ch !== 'g' && ch !== 'b' && ch !== 't' && ch !== 'z') {
+          clearSeq();
+          seqLetter = ch;
+          seqTimer = setTimeout(clearSeq, 800);
+          e.preventDefault();
+          return;
+        }
+        if (seqLetter && /^[1-9]$/.test(ch)) {
+          const group = seqLetter.charCodeAt(0) - 97;
+          const num = parseInt(ch, 10);
+          const idx = group * 9 + (num - 1);
+          const tocItems = getTocItems();
+          if (tocItems[idx]) {
+            const href = tocItems[idx].getAttribute('href');
+            if (href && href.startsWith('#')) {
+              const el = document.getElementById(href.substring(1));
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }
+          clearSeq();
+          e.preventDefault();
+          return;
+        }
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Image Magnifier (hold Z to zoom, click to toggle lock)
+    // ═══════════════════════════════════════════════════════════════
+
+    (function() {
+      let zKeyPressed = false;
+      let clickMagnifierActive = false;
+      let currentHoveredImage = null;
+      let lastMouseEvent = null;
+      const allMagnifierGlasses = [];
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          if (isTypingTarget(e.target)) return;
+          zKeyPressed = true;
+          if (currentHoveredImage && lastMouseEvent) {
+            currentHoveredImage.setAttribute('data-magnifier-active', 'true');
+            currentHoveredImage.dispatchEvent(new MouseEvent('mousemove', {
+              clientX: lastMouseEvent.clientX,
+              clientY: lastMouseEvent.clientY,
+              bubbles: true
+            }));
+          }
+        }
+
+        if (e.key === 'Escape') {
+          zKeyPressed = false;
+          clickMagnifierActive = false;
+          if (currentHoveredImage) {
+            currentHoveredImage.removeAttribute('data-magnifier-active');
+          }
+          allMagnifierGlasses.forEach(glass => {
+            if (glass) glass.style.display = 'none';
+          });
+        }
+      });
+
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'z') {
+          zKeyPressed = false;
+          if (currentHoveredImage) {
+            currentHoveredImage.removeAttribute('data-magnifier-active');
+          }
+          allMagnifierGlasses.forEach(glass => {
+            if (glass) glass.style.display = 'none';
+          });
+        }
+      });
+
+      function enhanceImages() {
+        document.querySelectorAll('img:not([data-magnifier-processed])').forEach(img => {
+          img.setAttribute('data-magnifier-processed', 'true');
+          img.style.cursor = 'zoom-in';
+          img.style.transition = 'transform 0.2s';
+
+          let magnifierGlass = null;
+
+          const showMagnifier = (e) => {
+            lastMouseEvent = e;
+            if (!zKeyPressed && !clickMagnifierActive) return;
+
+            const rect = img.getBoundingClientRect();
+
+            if (!magnifierGlass) {
+              magnifierGlass = document.createElement('div');
+              magnifierGlass.style.cssText = \`
+                position: absolute;
+                width: 400px;
+                height: 400px;
+                border: 2px solid var(--text-primary);
+                border-radius: 50%;
+                background-repeat: no-repeat;
+                pointer-events: none;
+                z-index: 10000;
+                background-color: var(--bg-primary);
+                background-image: url('\${img.src}');
+              \`;
+              document.body.appendChild(magnifierGlass);
+              allMagnifierGlasses.push(magnifierGlass);
+            }
+
+            const zoom = 2.5;
+            const glassSize = 400;
+
+            let x = e.pageX - glassSize / 2;
+            let y = e.pageY - glassSize / 2;
+
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const scrollX = window.pageXOffset;
+            const scrollY = window.pageYOffset;
+            const padding = 10;
+
+            x = Math.max(scrollX + padding, Math.min(x, scrollX + viewportWidth - glassSize - padding));
+            y = Math.max(scrollY + padding, Math.min(y, scrollY + viewportHeight - glassSize - padding));
+
+            magnifierGlass.style.left = x + 'px';
+            magnifierGlass.style.top = y + 'px';
+            magnifierGlass.style.display = 'block';
+
+            let bgX = ((e.clientX - rect.left) / rect.width) * 100;
+            let bgY = ((e.clientY - rect.top) / rect.height) * 100;
+            bgX = Math.max(0, Math.min(100, bgX));
+            bgY = Math.max(0, Math.min(100, bgY));
+
+            magnifierGlass.style.backgroundSize = \`\${img.width * zoom}px \${img.height * zoom}px\`;
+            magnifierGlass.style.backgroundPosition = \`\${bgX}% \${bgY}%\`;
+          };
+
+          const hideMagnifier = () => {
+            if (magnifierGlass) magnifierGlass.style.display = 'none';
+          };
+
+          const globalMouseMove = (e) => {
+            lastMouseEvent = e;
+            if ((!zKeyPressed && !clickMagnifierActive) || currentHoveredImage !== img) return;
+            showMagnifier(e);
+          };
+
+          img.addEventListener('mouseenter', (e) => {
+            currentHoveredImage = img;
+            lastMouseEvent = e;
+            img.addEventListener('mousemove', showMagnifier);
+            document.addEventListener('mousemove', globalMouseMove);
+          });
+
+          img.addEventListener('mouseleave', (e) => {
+            if (!clickMagnifierActive) {
+              const rect = img.getBoundingClientRect();
+              const buffer = 150;
+              const inBuffer = e.clientX >= rect.left - buffer && e.clientX <= rect.right + buffer &&
+                               e.clientY >= rect.top - buffer && e.clientY <= rect.bottom + buffer;
+              if (!inBuffer) {
+                currentHoveredImage = null;
+                img.removeAttribute('data-magnifier-active');
+                img.removeEventListener('mousemove', showMagnifier);
+                document.removeEventListener('mousemove', globalMouseMove);
+                hideMagnifier();
+              }
+            }
+          });
+
+          img.addEventListener('click', (e) => {
+            e.preventDefault();
+            clickMagnifierActive = !clickMagnifierActive;
+            if (clickMagnifierActive) {
+              showMagnifier(e);
+            } else {
+              hideMagnifier();
+            }
+          });
+        });
+      }
+
+      enhanceImages();
+      new MutationObserver(enhanceImages).observe(document.body, { childList: true, subtree: true });
+    })();
   </script>
 </body>
 </html>`;
@@ -662,6 +1082,24 @@ export async function startServer(
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ files, current: state.currentFile }));
       return;
+    }
+
+    // Serve font file
+    if (req.url === '/fonts/DepartureMono-Regular.woff2') {
+      try {
+        const fontPath = resolve(__dirname, '../../assets/fonts/DepartureMono-Regular.woff2');
+        const fontData = readFileSync(fontPath);
+        res.writeHead(200, {
+          'Content-Type': 'font/woff2',
+          'Cache-Control': 'public, max-age=31536000',
+        });
+        res.end(fontData);
+        return;
+      } catch {
+        res.writeHead(404);
+        res.end('Font not found');
+        return;
+      }
     }
 
     // Main page
