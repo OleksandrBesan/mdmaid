@@ -101,28 +101,125 @@ function generateHTMLTemplate(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${currentFile.name} - mdmaid</title>
 
+  <!-- Preload font for mermaid -->
+  <link rel="preload" href="/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+
   <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+    // Wait for font to load
+    await document.fonts.load('11px "Departure Mono"').catch(() => {});
+
+    // Load external diagram plugins
+    async function loadPlugins() {
+      const plugins = [];
+      const pluginUrls = [
+        'https://unpkg.com/@mermaid-js/mermaid-architecture-diagram/dist/mermaid-architecture-diagram.esm.mjs',
+        'https://unpkg.com/@mermaid-js/mermaid-kanban/dist/mermaid-kanban.esm.mjs'
+      ];
+
+      for (const url of pluginUrls) {
+        try {
+          const mod = await import(url);
+          if (mod.default) plugins.push(mod.default);
+          else if (mod.plugin) plugins.push(mod.plugin);
+          else plugins.push(mod);
+        } catch (e) {
+          console.warn('Failed to load mermaid plugin:', url, e);
+        }
+      }
+
+      if (plugins.length > 0) {
+        try {
+          await mermaid.registerExternalDiagrams(plugins);
+        } catch (e) {
+          console.warn('Failed to register plugins:', e);
+        }
+      }
+    }
+
+    await loadPlugins();
+
+    // Full mermaid config matching blog
     mermaid.initialize({
       startOnLoad: true,
       theme: 'base',
       securityLevel: 'loose',
-      fontFamily: '"Departure Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
-      fontSize: 11,
+      fontFamily: 'Departure Mono, monospace',
       themeVariables: {
+        background: 'transparent',
+        fontFamily: 'Departure Mono, monospace',
+        fontSize: '11px',
+
         primaryColor: '#ffffff',
         primaryTextColor: '#000000',
         primaryBorderColor: '#000000',
-        lineColor: '#000000',
         secondaryColor: '#f5f5f5',
+        secondaryTextColor: '#000000',
+        secondaryBorderColor: '#000000',
         tertiaryColor: '#e5e5e5',
-        background: 'transparent',
-        mainBkg: 'transparent',
+        tertiaryTextColor: '#000000',
+        tertiaryBorderColor: '#000000',
+
+        lineColor: '#000000',
+        textColor: '#000000',
+
+        mainBkg: '#ffffff',
         nodeBorder: '#000000',
         clusterBkg: '#f5f5f5',
         clusterBorder: '#000000',
         titleColor: '#000000',
-        edgeLabelBackground: 'transparent',
+        edgeLabelBackground: '#ffffff',
+        nodeTextColor: '#000000',
+
+        actorBkg: '#ffffff',
+        actorBorder: '#000000',
+        actorTextColor: '#000000',
+        actorLineColor: '#000000',
+
+        signalColor: '#000000',
+        signalTextColor: '#000000',
+
+        labelBoxBkgColor: '#ffffff',
+        labelBoxBorderColor: '#000000',
+        labelTextColor: '#000000',
+
+        loopTextColor: '#000000',
+
+        noteBkgColor: '#ffffff',
+        noteTextColor: '#000000',
+        noteBorderColor: '#000000',
+
+        activationBkgColor: '#f5f5f5',
+        activationBorderColor: '#000000',
+
+        sequenceNumberColor: '#000000',
+
+        sectionBkgColor: '#ffffff',
+        altSectionBkgColor: '#f5f5f5',
+        sectionBkgColor2: '#ffffff',
+
+        taskBkgColor: '#ffffff',
+        taskTextColor: '#000000',
+        taskTextLightColor: '#000000',
+        taskTextOutsideColor: '#000000',
+        taskTextClickableColor: '#000000',
+        taskBorderColor: '#000000',
+
+        activeTaskBkgColor: '#e5e5e5',
+        activeTaskBorderColor: '#000000',
+
+        gridColor: '#cccccc',
+        doneTaskBkgColor: '#f5f5f5',
+        doneTaskBorderColor: '#000000',
+
+        critBkgColor: '#ffffff',
+        critBorderColor: '#000000',
+
+        todayLineColor: '#000000',
+
+        personBkg: '#ffffff',
+        personBorder: '#000000',
       }
     });
   </script>
@@ -316,10 +413,56 @@ function generateHTMLTemplate(
       margin: 24px 0;
       text-align: center;
       background: transparent !important;
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      overflow-x: auto;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .content .mermaid svg {
       background: transparent !important;
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Mermaid text and labels use the monospace font */
+    .content .mermaid text,
+    .content .mermaid .label,
+    .content .mermaid .nodeLabel,
+    .content .mermaid .edgeLabel,
+    .content .mermaid .cluster-label,
+    .content .mermaid .title,
+    .content .mermaid tspan {
+      font-family: var(--font-mono) !important;
+      font-size: 11px !important;
+    }
+
+    /* Mermaid node styling */
+    .content .mermaid .node rect,
+    .content .mermaid .node circle,
+    .content .mermaid .node ellipse,
+    .content .mermaid .node polygon,
+    .content .mermaid .node path {
+      stroke: var(--text-primary) !important;
+      stroke-width: 1px !important;
+    }
+
+    /* Mermaid edge styling */
+    .content .mermaid .edgePath path {
+      stroke: var(--text-primary) !important;
+      stroke-width: 1px !important;
+    }
+
+    .content .mermaid marker path {
+      fill: var(--text-primary) !important;
+    }
+
+    /* Cluster/subgraph styling */
+    .content .mermaid .cluster rect {
+      stroke: var(--text-primary) !important;
+      stroke-width: 1px !important;
+      stroke-dasharray: 4,4 !important;
     }
 
     .file-path {
@@ -386,6 +529,14 @@ function generateHTMLTemplate(
       body { grid-template-columns: 1fr; padding: 0; background: white; }
       .sidebar, .status-bar { display: none !important; }
       .content { box-shadow: none; max-width: 100%; padding: 20px; }
+      .content .mermaid,
+      .content pre,
+      .content img,
+      .content svg,
+      .content table {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
     }
 
     @media (max-width: 768px) {
@@ -743,156 +894,168 @@ function generateHTMLTemplate(
 
     (function() {
       let zKeyPressed = false;
-      let clickMagnifierActive = false;
-      let currentHoveredImage = null;
-      let lastMouseEvent = null;
-      const allMagnifierGlasses = [];
+      let clickLocked = false;
+      let currentTarget = null;
+      let magnifierGlass = null;
 
+      // Create magnifier element
+      function createMagnifier() {
+        if (magnifierGlass) return magnifierGlass;
+        magnifierGlass = document.createElement('div');
+        magnifierGlass.id = 'zoom-magnifier';
+        magnifierGlass.style.cssText = \`
+          position: fixed;
+          width: 400px;
+          height: 400px;
+          border: 2px solid var(--text-primary);
+          border-radius: 50%;
+          background-repeat: no-repeat;
+          pointer-events: none;
+          z-index: 10000;
+          background-color: var(--bg-primary);
+          display: none;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        \`;
+        document.body.appendChild(magnifierGlass);
+        return magnifierGlass;
+      }
+
+      // Convert SVG to data URI
+      function svgToDataUri(svg) {
+        const clone = svg.cloneNode(true);
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        const svgStr = new XMLSerializer().serializeToString(clone);
+        return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
+      }
+
+      // Get image source for element
+      function getImageSrc(el) {
+        if (el.tagName === 'IMG') return el.src;
+        if (el.tagName === 'svg' || el.tagName === 'SVG') return svgToDataUri(el);
+        return null;
+      }
+
+      // Update magnifier position and content
+      function updateMagnifier(e, target) {
+        const glass = createMagnifier();
+        const rect = target.getBoundingClientRect();
+        const src = getImageSrc(target);
+        if (!src) return;
+
+        // Get dimensions
+        const width = target.tagName === 'IMG' ? target.naturalWidth || target.width : rect.width;
+        const height = target.tagName === 'IMG' ? target.naturalHeight || target.height : rect.height;
+
+        const zoom = 2.5;
+        const glassSize = 400;
+
+        // Position magnifier at cursor (using fixed positioning)
+        let x = e.clientX - glassSize / 2;
+        let y = e.clientY - glassSize / 2;
+
+        // Keep within viewport
+        x = Math.max(10, Math.min(x, window.innerWidth - glassSize - 10));
+        y = Math.max(10, Math.min(y, window.innerHeight - glassSize - 10));
+
+        glass.style.left = x + 'px';
+        glass.style.top = y + 'px';
+        glass.style.backgroundImage = \`url('\${src}')\`;
+        glass.style.backgroundSize = \`\${width * zoom}px \${height * zoom}px\`;
+
+        // Background position based on cursor within element
+        let bgX = ((e.clientX - rect.left) / rect.width) * 100;
+        let bgY = ((e.clientY - rect.top) / rect.height) * 100;
+        bgX = Math.max(0, Math.min(100, bgX));
+        bgY = Math.max(0, Math.min(100, bgY));
+        glass.style.backgroundPosition = \`\${bgX}% \${bgY}%\`;
+
+        glass.style.display = 'block';
+      }
+
+      function hideMagnifier() {
+        if (magnifierGlass) magnifierGlass.style.display = 'none';
+      }
+
+      // Keyboard handlers
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          if (isTypingTarget(e.target)) return;
+        if (e.key === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
           zKeyPressed = true;
-          if (currentHoveredImage && lastMouseEvent) {
-            currentHoveredImage.setAttribute('data-magnifier-active', 'true');
-            currentHoveredImage.dispatchEvent(new MouseEvent('mousemove', {
-              clientX: lastMouseEvent.clientX,
-              clientY: lastMouseEvent.clientY,
-              bubbles: true
-            }));
-          }
         }
-
         if (e.key === 'Escape') {
           zKeyPressed = false;
-          clickMagnifierActive = false;
-          if (currentHoveredImage) {
-            currentHoveredImage.removeAttribute('data-magnifier-active');
-          }
-          allMagnifierGlasses.forEach(glass => {
-            if (glass) glass.style.display = 'none';
-          });
+          clickLocked = false;
+          currentTarget = null;
+          hideMagnifier();
         }
       });
 
       document.addEventListener('keyup', (e) => {
         if (e.key === 'z') {
           zKeyPressed = false;
-          if (currentHoveredImage) {
-            currentHoveredImage.removeAttribute('data-magnifier-active');
-          }
-          allMagnifierGlasses.forEach(glass => {
-            if (glass) glass.style.display = 'none';
-          });
+          if (!clickLocked) hideMagnifier();
         }
       });
 
-      function enhanceImages() {
-        document.querySelectorAll('img:not([data-magnifier-processed])').forEach(img => {
-          img.setAttribute('data-magnifier-processed', 'true');
-          img.style.cursor = 'zoom-in';
-          img.style.transition = 'transform 0.2s';
+      // Mouse handlers on document for smooth tracking
+      document.addEventListener('mousemove', (e) => {
+        if (!zKeyPressed && !clickLocked) return;
+        if (!currentTarget) return;
+        updateMagnifier(e, currentTarget);
+      });
 
-          let magnifierGlass = null;
+      // Setup zoomable elements
+      function setupZoomable(el) {
+        if (el.hasAttribute('data-zoom-ready')) return;
+        el.setAttribute('data-zoom-ready', 'true');
+        el.style.cursor = 'zoom-in';
 
-          const showMagnifier = (e) => {
-            lastMouseEvent = e;
-            if (!zKeyPressed && !clickMagnifierActive) return;
+        el.addEventListener('mouseenter', () => {
+          currentTarget = el;
+        });
 
-            const rect = img.getBoundingClientRect();
+        el.addEventListener('mouseleave', () => {
+          if (!clickLocked) {
+            currentTarget = null;
+            hideMagnifier();
+          }
+        });
 
-            if (!magnifierGlass) {
-              magnifierGlass = document.createElement('div');
-              magnifierGlass.style.cssText = \`
-                position: absolute;
-                width: 400px;
-                height: 400px;
-                border: 2px solid var(--text-primary);
-                border-radius: 50%;
-                background-repeat: no-repeat;
-                pointer-events: none;
-                z-index: 10000;
-                background-color: var(--bg-primary);
-                background-image: url('\${img.src}');
-              \`;
-              document.body.appendChild(magnifierGlass);
-              allMagnifierGlasses.push(magnifierGlass);
-            }
-
-            const zoom = 2.5;
-            const glassSize = 400;
-
-            let x = e.pageX - glassSize / 2;
-            let y = e.pageY - glassSize / 2;
-
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const scrollX = window.pageXOffset;
-            const scrollY = window.pageYOffset;
-            const padding = 10;
-
-            x = Math.max(scrollX + padding, Math.min(x, scrollX + viewportWidth - glassSize - padding));
-            y = Math.max(scrollY + padding, Math.min(y, scrollY + viewportHeight - glassSize - padding));
-
-            magnifierGlass.style.left = x + 'px';
-            magnifierGlass.style.top = y + 'px';
-            magnifierGlass.style.display = 'block';
-
-            let bgX = ((e.clientX - rect.left) / rect.width) * 100;
-            let bgY = ((e.clientY - rect.top) / rect.height) * 100;
-            bgX = Math.max(0, Math.min(100, bgX));
-            bgY = Math.max(0, Math.min(100, bgY));
-
-            magnifierGlass.style.backgroundSize = \`\${img.width * zoom}px \${img.height * zoom}px\`;
-            magnifierGlass.style.backgroundPosition = \`\${bgX}% \${bgY}%\`;
-          };
-
-          const hideMagnifier = () => {
-            if (magnifierGlass) magnifierGlass.style.display = 'none';
-          };
-
-          const globalMouseMove = (e) => {
-            lastMouseEvent = e;
-            if ((!zKeyPressed && !clickMagnifierActive) || currentHoveredImage !== img) return;
-            showMagnifier(e);
-          };
-
-          img.addEventListener('mouseenter', (e) => {
-            currentHoveredImage = img;
-            lastMouseEvent = e;
-            img.addEventListener('mousemove', showMagnifier);
-            document.addEventListener('mousemove', globalMouseMove);
-          });
-
-          img.addEventListener('mouseleave', (e) => {
-            if (!clickMagnifierActive) {
-              const rect = img.getBoundingClientRect();
-              const buffer = 150;
-              const inBuffer = e.clientX >= rect.left - buffer && e.clientX <= rect.right + buffer &&
-                               e.clientY >= rect.top - buffer && e.clientY <= rect.bottom + buffer;
-              if (!inBuffer) {
-                currentHoveredImage = null;
-                img.removeAttribute('data-magnifier-active');
-                img.removeEventListener('mousemove', showMagnifier);
-                document.removeEventListener('mousemove', globalMouseMove);
-                hideMagnifier();
-              }
-            }
-          });
-
-          img.addEventListener('click', (e) => {
-            e.preventDefault();
-            clickMagnifierActive = !clickMagnifierActive;
-            if (clickMagnifierActive) {
-              showMagnifier(e);
-            } else {
-              hideMagnifier();
-            }
-          });
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('a')) return; // Don't block links
+          clickLocked = !clickLocked;
+          if (!clickLocked) {
+            hideMagnifier();
+          }
         });
       }
 
-      enhanceImages();
-      new MutationObserver(enhanceImages).observe(document.body, { childList: true, subtree: true });
+      // Find and setup all zoomable elements
+      function enhanceAll() {
+        // Images
+        document.querySelectorAll('img:not([data-zoom-ready])').forEach(setupZoomable);
+        // All SVGs in .mermaid containers (covers all diagram types)
+        document.querySelectorAll('.mermaid svg:not([data-zoom-ready])').forEach(setupZoomable);
+        // SVGs with mermaid IDs
+        document.querySelectorAll('svg[id^="mermaid"]:not([data-zoom-ready])').forEach(setupZoomable);
+        // SVGs with dmermaid IDs (some diagram types use this)
+        document.querySelectorAll('svg[id^="dmermaid"]:not([data-zoom-ready])').forEach(setupZoomable);
+        // Any SVG directly inside .mermaid that might have replaced the text
+        document.querySelectorAll('.mermaid > svg:not([data-zoom-ready])').forEach(setupZoomable);
+        // Architecture and other diagrams might use different structures
+        document.querySelectorAll('[data-mermaid-type] svg:not([data-zoom-ready])').forEach(setupZoomable);
+      }
+
+      // Run after mermaid renders (architecture diagrams take longer)
+      setTimeout(enhanceAll, 500);
+      setTimeout(enhanceAll, 1000);
+      setTimeout(enhanceAll, 2000);
+      setTimeout(enhanceAll, 3000);
+      setTimeout(enhanceAll, 5000);
+
+      // Watch for dynamically added elements
+      new MutationObserver(() => {
+        setTimeout(enhanceAll, 100);
+      }).observe(document.body, { childList: true, subtree: true });
     })();
   </script>
 </body>
