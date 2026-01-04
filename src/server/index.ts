@@ -1,9 +1,13 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync } from 'fs';
-import { resolve, extname, basename, relative } from 'path';
+import { resolve, extname, basename, relative, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watch, FSWatcher } from 'chokidar';
-import { renderMarkdown } from '../core/renderer';
+import { renderMarkdown } from '../core/renderer.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export interface ServerOptions {
   port?: number;

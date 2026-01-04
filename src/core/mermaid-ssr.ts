@@ -1,8 +1,12 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Puppeteer is optional - only loaded when SSR is used
-let puppeteer: typeof import('puppeteer') | null = null;
+let pptr: any = null;
 
 export interface FontConfig {
   family: string;
@@ -58,16 +62,17 @@ let browserContext: BrowserContext | null = null;
  * Load puppeteer lazily to avoid requiring it for non-SSR usage
  */
 async function loadPuppeteer() {
-  if (!puppeteer) {
+  if (!pptr) {
     try {
-      puppeteer = await import('puppeteer');
+      const mod = await import('puppeteer');
+      pptr = mod.default || mod;
     } catch (e) {
       throw new Error(
         'puppeteer is required for server-side mermaid rendering. Install it with: npm install puppeteer'
       );
     }
   }
-  return puppeteer;
+  return pptr;
 }
 
 /**

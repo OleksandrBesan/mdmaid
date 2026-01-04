@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from 'fs';
-import { resolve, join, relative, extname, basename } from 'path';
+import { resolve, join, relative, extname, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 interface CliArgs {
   command: string;
@@ -146,7 +150,7 @@ export async function main() {
 }
 
 async function renderCommand(args: CliArgs) {
-  const { renderMarkdown } = await import('../core/renderer');
+  const { renderMarkdown } = await import('../core/renderer.js');
   const { writeFileSync } = await import('fs');
   const { resolve } = await import('path');
 
@@ -210,7 +214,7 @@ ${html}
 }
 
 async function serveCommand(args: CliArgs) {
-  const { startServer } = await import('../server/index');
+  const { startServer } = await import('../server/index.js');
 
   if (args.inputs.length === 0) {
     console.error('Error: Input file(s) required for serve command');
@@ -256,8 +260,8 @@ function hashContent(content: string): string {
 }
 
 async function renderDiagramsCommand(args: CliArgs) {
-  const { extractMermaidBlocks } = await import('../core/renderer');
-  const { renderMermaidBatch, closeBrowser } = await import('../core/mermaid-ssr');
+  const { extractMermaidBlocks } = await import('../core/renderer.js');
+  const { renderMermaidBatch, closeBrowser } = await import('../core/mermaid-ssr.js');
 
   if (!args.input) {
     console.error('Error: Input directory required');
@@ -377,10 +381,3 @@ async function renderDiagramsCommand(args: CliArgs) {
   console.log(`\nDone: ${totalRendered} rendered, ${totalSkipped} skipped`);
 }
 
-// Run if called directly
-if (require.main === module) {
-  main().catch((error) => {
-    console.error('Error:', error.message);
-    process.exit(1);
-  });
-}
