@@ -2,7 +2,7 @@
 
 **Markdown + Mermaid rendering library**
 
-A preconfigured markdown renderer with Mermaid diagram support. Built for personal use across [mdmaid.nvim](https://github.com/olesbesan/mdmaid.nvim) and [oles.md](https://github.com/olesbesan/oles.md) blog.
+A preconfigured markdown renderer with Mermaid diagram support. Built for personal use across [mdmaid.nvim](https://github.com/OleksandrBesan/mdmaid.nvim) and [oles.md](https://github.com/OleksandrBesan/oles.md) blog.
 
 ## What it does today
 
@@ -261,7 +261,7 @@ Current SSR requires puppeteer. Exploring:
 
 This library exists because I needed shared rendering logic between my Neovim plugin and my blog.
 
-The SSR module is extracted from [oles.md](https://github.com/olesbesan/oles.md) and works. The "ideas" above are things that would be nice to have but aren't priorities.
+The SSR module is extracted from [oles.md](https://github.com/OleksandrBesan/oles.md) and works. The "ideas" above are things that would be nice to have but aren't priorities.
 
 ## Development
 

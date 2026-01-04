@@ -113,7 +113,7 @@ Examples:
   mdmaid render-diagrams _posts/ --out public/diagrams/ --manifest
   mdmaid render-diagrams _posts/ -c mdmaid.config.json --manifest
 
-For Neovim integration, see: https://github.com/olesbesan/mdmaid.nvim
+For Neovim integration, see: https://github.com/OleksandrBesan/mdmaid.nvim
 `);
 }
 
