@@ -1,11 +1,7 @@
 {
   "name": "mdmaid",
-<<<<<<< Updated upstream
   "version": "0.1.10",
-=======
-  "version": "0.1.9",
   "type": "module",
->>>>>>> Stashed changes
   "description": "Markdown + Mermaid made simple - A powerful markdown renderer with first-class Mermaid diagram support",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
