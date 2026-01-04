@@ -3,6 +3,7 @@ import html from "remark-html";
 import gfm from "remark-gfm";
 import slug from "remark-slug";
 import autolinkHeadings from "remark-autolink-headings";
+import emoji from "remark-emoji";
 import { visit } from "unist-util-visit";
 
 export interface RenderOptions {
@@ -24,6 +25,7 @@ export async function renderMarkdown(
 
   const result = await remark()
     .use(gfm)
+    .use(emoji)
     .use(slug as any)
     .use(autolinkHeadings as any)
     .use(() => (tree) => {

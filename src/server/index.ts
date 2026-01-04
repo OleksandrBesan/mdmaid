@@ -246,6 +246,7 @@ function generateHTMLTemplate(
 
     :root {
       --font-mono: 'Departure Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+      --font-emoji: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
       --bg-primary: #ffffff;
       --bg-secondary: #f6f8fa;
       --text-primary: #000000;
@@ -264,7 +265,7 @@ function generateHTMLTemplate(
     }
 
     body {
-      font-family: var(--font-mono);
+      font-family: var(--font-mono), var(--font-emoji);
       font-size: 13px;
       line-height: 1.6;
       color: var(--text-primary);
@@ -413,7 +414,7 @@ function generateHTMLTemplate(
     .content code {
       background: var(--bg-secondary);
       padding: 2px 6px;
-      font-family: var(--font-mono);
+      font-family: var(--font-mono), var(--font-emoji);
       font-size: 0.9em;
     }
 
