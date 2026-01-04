@@ -436,6 +436,12 @@ function generateHTMLTemplate(
       height: auto;
     }
 
+    /* Magnifier-enabled images */
+    .content img:not([data-no-zoom]) {
+      cursor: zoom-in;
+      transition: transform 0.2s;
+    }
+
     /* Mermaid text and labels use the monospace font */
     .content .mermaid text,
     .content .mermaid .label,
