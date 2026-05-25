@@ -11,7 +11,8 @@ A preconfigured markdown renderer with Mermaid diagram support. Built for person
 - **SSR module** - Server-side mermaid → SVG rendering with font embedding
 - **Bundled font** - Departure Mono included for consistent diagram rendering
 - CLI for quick rendering and dev server with live reload
-- Dev server extras: ToC sidebar, image zoom, print styles
+- Dev server extras: ToC sidebar, removable file list, image zoom, print styles
+- Preview CSS keeps images inside the page width and adds subtle table borders for readability
 
 ## Installation
 
@@ -209,6 +210,10 @@ interface FontConfig {
 
 - Live reload on file changes
 - Auto-generated Table of Contents sidebar
+- File sidebar with in-browser removal (`×`) for pages you no longer want to view
+- Graceful add/switch failures: unreadable or render-failing files are skipped instead of breaking the whole session
+- Images auto-scale to the readable page width
+- Subtle table borders and row shading for dense GFM tables
 - Image magnifier (hold `Z` or click to zoom)
 - Print-friendly styles
 

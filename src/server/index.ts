@@ -2,7 +2,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, extname, basename, relative, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { watch, FSWatcher } from 'chokidar';
 import { renderMarkdown } from '../core/renderer.js';
 
@@ -59,6 +59,15 @@ function extractTOC(html: string): TocItem[] {
 /**
  * Generate HTML template with file picker, TOC and Magnifier
  */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function generateHTMLTemplate(
   content: string,
   currentFile: FileInfo,
@@ -72,9 +81,12 @@ function generateHTMLTemplate(
       <div class="section-header">Files</div>
       <ul class="files-list">
         ${allFiles.map(f => `
-          <li class="file-item ${f.path === currentFile.path ? 'active' : ''}" data-file="${f.path}">
-            <span class="file-icon">📄</span>
-            <span class="file-name">${f.name}</span>
+          <li class="file-item ${f.path === currentFile.path ? 'active' : ''}" data-file="${escapeHtml(f.path)}" title="${escapeHtml(f.relativePath)}">
+            <span class="file-select" data-file="${escapeHtml(f.path)}">
+              <span class="file-icon">📄</span>
+              <span class="file-name">${escapeHtml(f.name)}</span>
+            </span>
+            <button class="file-remove" data-file="${escapeHtml(f.path)}" title="Remove from preview" aria-label="Remove ${escapeHtml(f.name)}">×</button>
           </li>
         `).join('')}
       </ul>
@@ -321,6 +333,14 @@ function generateHTMLTemplate(
       border: 1px solid transparent;
     }
 
+    .file-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+
     .file-item:hover {
       border-color: var(--text-primary);
     }
@@ -337,12 +357,31 @@ function generateHTMLTemplate(
     .file-icon {
       opacity: 0.6;
       font-size: 11px;
+      flex: 0 0 auto;
     }
 
     .file-name {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .file-remove {
+      flex: 0 0 auto;
+      border: 1px solid transparent;
+      background: transparent;
+      color: inherit;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1;
+      padding: 2px 5px;
+      cursor: pointer;
+      opacity: 0.55;
+    }
+
+    .file-remove:hover {
+      opacity: 1;
+      border-color: currentColor;
     }
 
     .toc-item {
@@ -422,6 +461,38 @@ function generateHTMLTemplate(
       background: none;
       padding: 0;
       font-size: 11px;
+    }
+
+    /* Keep large screenshots/diagrams inside the readable page width. */
+    .content img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 16px auto;
+    }
+
+    .content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.95em;
+    }
+
+    .content th,
+    .content td {
+      border: 1px solid var(--border-color);
+      padding: 6px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .content th {
+      background: var(--bg-secondary);
+      font-weight: 600;
+    }
+
+    .content tr:nth-child(even) td {
+      background: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
     }
 
     .content .mermaid {
@@ -819,6 +890,10 @@ function generateHTMLTemplate(
         } else if (msg.action === 'files') {
           // Update file count
           fileCount.textContent = msg.files.length + ' file' + (msg.files.length !== 1 ? 's' : '');
+        } else if (msg.action === 'error') {
+          console.warn('mdmaid skipped file:', msg.file, msg.error);
+          const name = msg.file ? msg.file.split(/[\\/]/).pop() : 'file';
+          fileCount.textContent = 'Skipped ' + name + ': ' + msg.error;
         }
       } catch {
         // Legacy: plain text reload message
@@ -828,12 +903,22 @@ function generateHTMLTemplate(
       }
     };
 
-    // File switching via sidebar click
-    document.querySelectorAll('.file-item').forEach(item => {
+    // File switching/removal via sidebar click
+    document.querySelectorAll('.file-select').forEach(item => {
       item.addEventListener('click', () => {
         const file = item.dataset.file;
         if (file) {
           ws.send(JSON.stringify({ action: 'switch', file }));
+        }
+      });
+    });
+
+    document.querySelectorAll('.file-remove').forEach(button => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const file = button.dataset.file;
+        if (file) {
+          ws.send(JSON.stringify({ action: 'remove', file }));
         }
       });
     });
@@ -1191,7 +1276,7 @@ function generateHTMLTemplate(
 export async function startServer(
   filePathOrPaths: string | string[],
   options: ServerOptions = {}
-): Promise<{ server: ReturnType<typeof createServer>; port: number; addFile: (f: string) => void; removeFile: (f: string) => void; switchFile: (f: string) => void }> {
+): Promise<{ server: ReturnType<typeof createServer>; port: number; addFile: (f: string) => Promise<FileInfo | null>; removeFile: (f: string) => void; switchFile: (f: string) => Promise<void> }> {
   const host = options.host || 'localhost';
 
   // Normalize to array
@@ -1213,16 +1298,35 @@ export async function startServer(
   const watchers: Map<string, FSWatcher> = new Map();
   const clients = new Set<WebSocket>();
 
-  // Add a file to tracking
-  function addFile(filePath: string): FileInfo | null {
+  async function validateFile(filePath: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const fullPath = resolve(filePath);
     if (!existsSync(fullPath)) {
-      console.error(`File not found: ${fullPath}`);
-      return null;
+      return { ok: false, error: `File not found: ${fullPath}` };
     }
+
+    try {
+      const markdown = readFileSync(fullPath, 'utf-8');
+      await renderMarkdown(markdown);
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  }
+
+  // Add a file to tracking. Rendering failures are file-local: bad files are
+  // skipped instead of poisoning the whole preview session.
+  async function addFile(filePath: string): Promise<FileInfo | null> {
+    const fullPath = resolve(filePath);
 
     if (state.files.has(fullPath)) {
       return state.files.get(fullPath)!;
+    }
+
+    const validation = await validateFile(fullPath);
+    if (!validation.ok) {
+      console.error(`Skipping ${fullPath}: ${validation.error}`);
+      broadcastError(fullPath, validation.error);
+      return null;
     }
 
     const info: FileInfo = {
@@ -1242,6 +1346,13 @@ export async function startServer(
     if (options.watch) {
       const watcher = watch(fullPath, { persistent: true, ignoreInitial: true });
       watcher.on('change', async () => {
+        const validation = await validateFile(fullPath);
+        if (!validation.ok) {
+          console.error(`Render failed for ${info.name}: ${validation.error}`);
+          broadcastError(fullPath, validation.error);
+          return;
+        }
+
         console.log(`📝 File changed: ${info.name}`);
         broadcastReload();
       });
@@ -1280,11 +1391,12 @@ export async function startServer(
   }
 
   // Switch current file
-  function switchFile(filePath: string): void {
+  async function switchFile(filePath: string): Promise<void> {
     const fullPath = resolve(filePath);
     if (!state.files.has(fullPath)) {
-      // Auto-add if not tracked
-      addFile(filePath);
+      // Auto-add if not tracked; keep the current page if the new file fails.
+      const added = await addFile(filePath);
+      if (!added) return;
     }
 
     if (state.files.has(fullPath)) {
@@ -1297,6 +1409,15 @@ export async function startServer(
   // Broadcast reload to all clients
   function broadcastReload(): void {
     const msg = JSON.stringify({ action: 'reload' });
+    clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    });
+  }
+
+  function broadcastError(file: string, error: string): void {
+    const msg = JSON.stringify({ action: 'error', file, error });
     clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(msg);
@@ -1337,9 +1458,10 @@ export async function startServer(
     }
   }
 
-  // Add initial files
+  // Add initial files. Bad files are reported and skipped, leaving the
+  // server alive so other files can still be previewed.
   for (const p of initialPaths) {
-    addFile(p);
+    await addFile(p);
   }
 
   // Create HTTP server
@@ -1348,15 +1470,38 @@ export async function startServer(
     if (req.method === 'POST' && req.url === '/api/add') {
       let body = '';
       req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { file } = JSON.parse(body);
+          const added = await addFile(file);
+          if (added) {
+            state.currentFile = added.path;
+            broadcastFileList();
+            broadcastReload();
+          }
+          res.writeHead(added ? 200 : 422, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(added ? { ok: true, file: added } : { ok: false, error: 'File could not be rendered and was skipped' }));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Invalid request' }));
+        }
+      });
+      return;
+    }
+
+    // API endpoint for removing files
+    if (req.method === 'POST' && req.url === '/api/remove') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
       req.on('end', () => {
         try {
           const { file } = JSON.parse(body);
-          addFile(file);
+          removeFile(file);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
         } catch {
-          res.writeHead(400);
-          res.end('Invalid request');
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Invalid request' }));
         }
       });
       return;
@@ -1426,16 +1571,16 @@ export async function startServer(
     }));
     ws.send(JSON.stringify({ action: 'files', files }));
 
-    ws.on('message', (data) => {
+    ws.on('message', async (data: RawData) => {
       try {
         const msg: WsMessage = JSON.parse(data.toString());
 
         switch (msg.action) {
           case 'switch':
-            if (msg.file) switchFile(msg.file);
+            if (msg.file) await switchFile(msg.file);
             break;
           case 'add':
-            if (msg.file) addFile(msg.file);
+            if (msg.file) await addFile(msg.file);
             break;
           case 'remove':
             if (msg.file) removeFile(msg.file);
