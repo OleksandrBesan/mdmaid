@@ -22,7 +22,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "markdown",
@@ -62,6 +63,7 @@
   "devDependencies": {
     "@types/node": "^20.14.8",
     "@types/ws": "^8.5.8",
-    "typescript": "^5.5.2"
+    "typescript": "^5.5.2",
+    "vitest": "^2.1.9"
   }
 }

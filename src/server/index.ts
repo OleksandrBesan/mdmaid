@@ -5,6 +5,14 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { watch, FSWatcher } from 'chokidar';
 import { renderMarkdown } from '../core/renderer.js';
+import {
+  DocumentConflictError,
+  appendMermaidBlock,
+  findMermaidBlocks,
+  readDocument,
+  replaceMermaidBlock,
+  writeDocumentIfUnchanged,
+} from '../core/document.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1458,6 +1466,53 @@ export async function startServer(
     }
   }
 
+  function sendJson(res: ServerResponse, status: number, data: unknown): void {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(data));
+  }
+
+  function readJsonBody(req: IncomingMessage): Promise<any> {
+    return new Promise((resolvePromise, reject) => {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          resolvePromise(body ? JSON.parse(body) : {});
+        } catch (error) {
+          reject(error);
+        }
+      });
+      req.on('error', reject);
+    });
+  }
+
+  function getCurrentDocumentPayload() {
+    if (!state.currentFile || !state.files.has(state.currentFile)) {
+      return null;
+    }
+
+    const snapshot = readDocument(state.currentFile);
+    return {
+      file: snapshot.path,
+      hash: snapshot.hash,
+      mtimeMs: snapshot.mtimeMs,
+      content: snapshot.content,
+      blocks: findMermaidBlocks(snapshot.content),
+    };
+  }
+
+  function handleDocumentWriteError(res: ServerResponse, error: unknown): void {
+    if (error instanceof DocumentConflictError) {
+      sendJson(res, 409, { ok: false, error: error.message });
+      return;
+    }
+    if (error instanceof RangeError) {
+      sendJson(res, 404, { ok: false, error: error.message });
+      return;
+    }
+    sendJson(res, 400, { ok: false, error: 'Invalid request' });
+  }
+
   // Add initial files. Bad files are reported and skipped, leaving the
   // server alive so other files can still be previewed.
   for (const p of initialPaths) {
@@ -1466,6 +1521,90 @@ export async function startServer(
 
   // Create HTTP server
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method === 'GET' && req.url === '/api/document/current') {
+      const payload = getCurrentDocumentPayload();
+      if (!payload) {
+        sendJson(res, 404, { ok: false, error: 'No current document' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, ...payload });
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/api/document/mermaid-blocks') {
+      const payload = getCurrentDocumentPayload();
+      if (!payload) {
+        sendJson(res, 404, { ok: false, error: 'No current document' });
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        file: payload.file,
+        hash: payload.hash,
+        mtimeMs: payload.mtimeMs,
+        blocks: payload.blocks,
+      });
+      return;
+    }
+
+    const mermaidBlockMatch = req.url?.match(/^\/api\/document\/mermaid-blocks\/(\d+)$/);
+    if (req.method === 'POST' && mermaidBlockMatch) {
+      try {
+        if (!state.currentFile || !state.files.has(state.currentFile)) {
+          sendJson(res, 404, { ok: false, error: 'No current document' });
+          return;
+        }
+
+        const body = await readJsonBody(req);
+        const blockIndex = Number(mermaidBlockMatch[1]);
+        const snapshot = readDocument(state.currentFile);
+        const nextContent = replaceMermaidBlock(snapshot.content, blockIndex, String(body.code ?? ''), body.meta);
+        const nextSnapshot = writeDocumentIfUnchanged(state.currentFile, nextContent, {
+          expectedHash: String(body.expectedHash ?? ''),
+          expectedMtimeMs: typeof body.expectedMtimeMs === 'number' ? body.expectedMtimeMs : undefined,
+        });
+        broadcastReload();
+        sendJson(res, 200, {
+          ok: true,
+          file: nextSnapshot.path,
+          hash: nextSnapshot.hash,
+          mtimeMs: nextSnapshot.mtimeMs,
+          blocks: findMermaidBlocks(nextSnapshot.content),
+        });
+      } catch (error) {
+        handleDocumentWriteError(res, error);
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/document/mermaid-blocks') {
+      try {
+        if (!state.currentFile || !state.files.has(state.currentFile)) {
+          sendJson(res, 404, { ok: false, error: 'No current document' });
+          return;
+        }
+
+        const body = await readJsonBody(req);
+        const snapshot = readDocument(state.currentFile);
+        const nextContent = appendMermaidBlock(snapshot.content, String(body.code ?? ''), body.meta);
+        const nextSnapshot = writeDocumentIfUnchanged(state.currentFile, nextContent, {
+          expectedHash: String(body.expectedHash ?? ''),
+          expectedMtimeMs: typeof body.expectedMtimeMs === 'number' ? body.expectedMtimeMs : undefined,
+        });
+        broadcastReload();
+        sendJson(res, 201, {
+          ok: true,
+          file: nextSnapshot.path,
+          hash: nextSnapshot.hash,
+          mtimeMs: nextSnapshot.mtimeMs,
+          blocks: findMermaidBlocks(nextSnapshot.content),
+        });
+      } catch (error) {
+        handleDocumentWriteError(res, error);
+      }
+      return;
+    }
+
     // API endpoint for adding files
     if (req.method === 'POST' && req.url === '/api/add') {
       let body = '';
