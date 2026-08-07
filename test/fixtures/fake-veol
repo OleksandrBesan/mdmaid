@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+
+const chunks = [];
+
+for await (const chunk of process.stdin) {
+  chunks.push(chunk);
+}
+
+const widthIndex = process.argv.indexOf('--width');
+const width = widthIndex === -1 ? 'missing' : process.argv[widthIndex + 1];
+const input = Buffer.concat(chunks).toString('utf8');
+
+if (input.includes('VEOL_FAIL')) {
+  process.stderr.write('intentional Veol failure\n');
+  process.exit(2);
+}
+
+process.stdout.write(`VEOL width=${width}\n${input}`);

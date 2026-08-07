@@ -8,6 +8,7 @@ A preconfigured markdown renderer with Mermaid diagram support. Built for person
 
 - Markdown → HTML via remark (GFM, slug, autolink-headings)
 - Mermaid code blocks → `<div class="mermaid">` (client-side rendering)
+- Terminal-native Markdown + Mermaid output for SSH, tmux, CI, and editors
 - **SSR module** - Server-side mermaid → SVG rendering with font embedding
 - **Bundled font** - Departure Mono included for consistent diagram rendering
 - CLI for quick rendering and dev server with live reload
@@ -21,6 +22,16 @@ npm install mdmaid
 
 # For SSR (optional)
 npm install puppeteer
+```
+
+Terminal rendering works immediately through the bundled `beautiful-mermaid`
+fallback. For broader Mermaid coverage and whole-document terminal formatting,
+install [Veol](https://github.com/guiwohl/veol):
+
+```bash
+git clone https://github.com/guiwohl/veol.git
+cd veol
+cargo install --path .
 ```
 
 ## Usage
@@ -135,7 +146,56 @@ mdmaid serve docs/index.md --watch --port 3333
 
 # Batch render mermaid diagrams to SVG (requires puppeteer)
 mdmaid render-diagrams _posts/ --out public/diagrams/ --manifest
+
+# Render Markdown and Mermaid directly in the terminal
+mdmaid tui README.md
+cat README.md | mdmaid tui -
+
+# Render one Mermaid diagram as terminal text
+mdmaid render-mermaid diagram.mmd --format ascii
+cat diagram.mmd | mdmaid render-mermaid - --format ascii
+
+# Select the terminal or existing HTML renderer explicitly
+mdmaid show README.md --viewer tui
+mdmaid show README.md --viewer web
+mdmaid show README.md --viewer auto
 ```
+
+### Terminal Rendering
+
+The TUI renderer writes plain, pipeable text to stdout. It does not require a
+browser, Kitty, Sixel, or another terminal image protocol.
+
+Backend selection is deterministic:
+
+1. `veol` renders the whole Markdown document and supports the broadest set of
+   Mermaid diagram types.
+2. `beautiful-mermaid` replaces supported Mermaid fences with Unicode terminal
+   art while preserving the rest of the Markdown source.
+3. `source` preserves unsupported Mermaid as a fenced block and reports a
+   warning on stderr.
+
+Choose a backend explicitly when scripting:
+
+```bash
+mdmaid tui README.md --backend auto
+mdmaid tui README.md --backend veol --width 100
+mdmaid tui README.md --backend beautiful-mermaid
+mdmaid tui README.md --backend source
+```
+
+`--width` applies to Veol and accepts 20–1000 columns. The JavaScript fallback
+uses plain, color-free Unicode output and does not currently enforce a maximum
+width. It supports flowcharts, state, sequence, class, ER, and XY diagrams.
+Other diagram types remain readable as source when Veol is unavailable.
+
+`show --viewer auto` uses terminal output in an interactive terminal, SSH,
+Termius, or Neovim context. In non-interactive pipelines it keeps the existing
+HTML output behavior. Editor integrations should call `mdmaid tui -` or
+`mdmaid render-mermaid -` directly.
+
+Use the web renderer when browser fidelity and complete Mermaid styling matter.
+Use the TUI renderer when portability over SSH and plain-text output matter.
 
 ## API Reference
 
@@ -155,6 +215,34 @@ const html = await renderMarkdown(content, {
 const blocks = extractMermaidBlocks(content);
 // ['graph TD\n  A --> B', 'sequenceDiagram\n  ...']
 ```
+
+### TUI (`mdmaid/tui`)
+
+```typescript
+import {
+  renderMarkdownToTui,
+  renderMermaidToAscii,
+} from 'mdmaid/tui';
+
+const document = await renderMarkdownToTui(markdown, {
+  backend: 'auto',
+  width: 100,
+});
+
+const diagram = await renderMermaidToAscii('graph LR; A --> B', {
+  backend: 'beautiful-mermaid',
+  unicode: true,
+});
+
+console.log(diagram.output);
+console.error(diagram.warnings.join('\n'));
+```
+
+Both functions return `{ output, backend, warnings }`. Available backends are
+`auto`, `veol`, `beautiful-mermaid`, and `source`. Library consumers can set
+`veolPath` when the binary is not available on `PATH`, set `unicode: false` for
+pure ASCII from `beautiful-mermaid`, or set `beautifulMermaid: false` to disable
+the automatic JavaScript fallback.
 
 ### SSR (`mdmaid/ssr`)
 

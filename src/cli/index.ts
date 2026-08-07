@@ -5,6 +5,8 @@ import { resolve, join, relative, extname, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
+import type { TuiBackend, TuiRenderOptions, TuiRenderResult } from '../tui/types.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -15,9 +17,12 @@ interface CliArgs {
   output?: string;
   port?: number;
   watch?: boolean;
-  format?: 'html' | 'pdf';
+  format?: string;
   config?: string;
   manifest?: boolean;
+  backend?: string;
+  viewer?: string;
+  width?: number;
 }
 
 function parseArgs(args: string[]): CliArgs {
@@ -28,6 +33,11 @@ function parseArgs(args: string[]): CliArgs {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    const readOptionValue = (): string => {
+      const value = args[++i];
+      if (value === undefined) throw new Error(`Missing value for ${arg}.`);
+      return value;
+    };
 
     switch (arg) {
       case 'serve':
@@ -36,14 +46,23 @@ function parseArgs(args: string[]): CliArgs {
       case 'render-diagrams':
         parsed.command = 'render-diagrams';
         break;
+      case 'show':
+        parsed.command = 'show';
+        break;
+      case 'tui':
+        parsed.command = 'tui';
+        break;
+      case 'render-mermaid':
+        parsed.command = 'render-mermaid';
+        break;
       case '-o':
       case '--output':
       case '--out':
-        parsed.output = args[++i];
+        parsed.output = readOptionValue();
         break;
       case '-p':
       case '--port':
-        parsed.port = parseInt(args[++i], 10);
+        parsed.port = parseInt(readOptionValue(), 10);
         break;
       case '--watch':
       case '-w':
@@ -51,11 +70,20 @@ function parseArgs(args: string[]): CliArgs {
         break;
       case '--format':
       case '-f':
-        parsed.format = args[++i] as 'html' | 'pdf';
+        parsed.format = readOptionValue();
+        break;
+      case '--backend':
+        parsed.backend = readOptionValue();
+        break;
+      case '--viewer':
+        parsed.viewer = readOptionValue();
+        break;
+      case '--width':
+        parsed.width = Number(readOptionValue());
         break;
       case '--config':
       case '-c':
-        parsed.config = args[++i];
+        parsed.config = readOptionValue();
         break;
       case '--manifest':
         parsed.manifest = true;
@@ -71,7 +99,7 @@ function parseArgs(args: string[]): CliArgs {
         process.exit(0);
         break;
       default:
-        if (!arg.startsWith('-')) {
+        if (arg === '-' || !arg.startsWith('-')) {
           parsed.inputs.push(arg);
           if (!parsed.input) {
             parsed.input = arg; // Keep first as primary for backwards compat
@@ -90,6 +118,9 @@ mdmaid - Markdown + Mermaid made simple
 Usage:
   mdmaid <file.md>                    Render markdown to HTML (stdout)
   mdmaid <file.md> -o <output.html>   Render to file
+  mdmaid show <file> --viewer <type>  Render with web, TUI, or auto viewer
+  mdmaid tui <file|->                 Render Markdown for the terminal
+  mdmaid render-mermaid <file|->      Render one Mermaid diagram as text
   mdmaid serve <file.md>              Start dev server
   mdmaid serve <file.md> --watch      Watch for changes
   mdmaid render-diagrams <dir>        Render mermaid diagrams to SVG
@@ -99,6 +130,9 @@ Options:
   -p, --port <number>      Server port (default: 3333)
   -w, --watch              Watch for changes
   -f, --format <type>      Output format: html, pdf (default: html)
+  --viewer <type>          Viewer: auto, tui, web (default: auto)
+  --backend <type>         TUI backend: auto, veol, beautiful-mermaid, source
+  --width <columns>        Terminal width for Veol (20-1000)
   -c, --config <file>      Config file (mdmaid.config.json)
   --manifest               Write manifest.json for caching
   -h, --help               Show help
@@ -107,6 +141,9 @@ Options:
 Examples:
   mdmaid README.md                          # Output to stdout
   mdmaid README.md -o output.html           # Save to file
+  mdmaid tui README.md                      # Terminal Markdown + Mermaid
+  cat README.md | mdmaid tui -              # Read Markdown from stdin
+  mdmaid render-mermaid diagram.mmd --format ascii
   mdmaid serve docs/ --port 3000 --watch    # Live preview
 
   # Render mermaid diagrams to SVG (requires puppeteer)
@@ -137,6 +174,15 @@ export async function main() {
     case 'render':
       await renderCommand(args);
       break;
+    case 'show':
+      await showCommand(args);
+      break;
+    case 'tui':
+      await tuiCommand(args);
+      break;
+    case 'render-mermaid':
+      await renderMermaidCommand(args);
+      break;
     case 'serve':
       await serveCommand(args);
       break;
@@ -151,11 +197,7 @@ export async function main() {
 
 async function renderCommand(args: CliArgs) {
   const { renderMarkdown } = await import('../core/renderer.js');
-  const { writeFileSync } = await import('fs');
-  const { resolve } = await import('path');
-
-  const inputPath = resolve(args.input!);
-  const markdown = readFileSync(inputPath, 'utf-8');
+  const markdown = await readInput(args.input!);
 
   const html = await renderMarkdown(markdown);
 
@@ -211,6 +253,101 @@ ${html}
     // Output to stdout
     console.log(html);
   }
+}
+
+const TUI_BACKENDS = new Set<TuiBackend>([
+  'auto',
+  'veol',
+  'beautiful-mermaid',
+  'source',
+]);
+
+function getTuiOptions(args: CliArgs): TuiRenderOptions {
+  const backend = args.backend ?? 'auto';
+
+  if (!TUI_BACKENDS.has(backend as TuiBackend)) {
+    throw new Error(
+      `Invalid backend "${backend}". Expected auto, veol, beautiful-mermaid, or source.`,
+    );
+  }
+
+  if (
+    args.width !== undefined &&
+    (!Number.isInteger(args.width) || args.width < 20 || args.width > 1_000)
+  ) {
+    throw new Error('Invalid width. Expected an integer between 20 and 1000.');
+  }
+
+  return {
+    backend: backend as TuiBackend,
+    width: args.width,
+  };
+}
+
+async function readInput(input: string): Promise<string> {
+  if (input !== '-') {
+    return readFileSync(resolve(input), 'utf-8');
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function writeTuiResult(result: TuiRenderResult): void {
+  process.stdout.write(result.output);
+  if (!result.output.endsWith('\n')) process.stdout.write('\n');
+
+  for (const warning of result.warnings) {
+    process.stderr.write(`Warning: ${warning}\n`);
+  }
+}
+
+async function tuiCommand(args: CliArgs): Promise<void> {
+  const { renderMarkdownToTui } = await import('../tui/index.js');
+  const markdown = await readInput(args.input!);
+  const result = await renderMarkdownToTui(markdown, getTuiOptions(args));
+  writeTuiResult(result);
+}
+
+async function renderMermaidCommand(args: CliArgs): Promise<void> {
+  if (args.format !== undefined && args.format !== 'ascii') {
+    throw new Error('Invalid format. render-mermaid currently supports only ascii.');
+  }
+
+  const { renderMermaidToAscii } = await import('../tui/index.js');
+  const code = await readInput(args.input!);
+  const result = await renderMermaidToAscii(code, getTuiOptions(args));
+  writeTuiResult(result);
+}
+
+function prefersTuiViewer(): boolean {
+  return Boolean(
+    process.stdout.isTTY ||
+      process.env.SSH_CONNECTION ||
+      process.env.SSH_TTY ||
+      process.env.NVIM ||
+      process.env.NVIM_LISTEN_ADDRESS ||
+      process.env.TERM_PROGRAM === 'Termius'
+  );
+}
+
+async function showCommand(args: CliArgs): Promise<void> {
+  const viewer = args.viewer ?? 'auto';
+
+  if (!['auto', 'tui', 'web'].includes(viewer)) {
+    throw new Error(`Invalid viewer "${viewer}". Expected auto, tui, or web.`);
+  }
+
+  if (viewer === 'tui' || (viewer === 'auto' && prefersTuiViewer())) {
+    await tuiCommand(args);
+    return;
+  }
+
+  await renderCommand(args);
 }
 
 async function serveCommand(args: CliArgs) {
@@ -380,4 +517,3 @@ async function renderDiagramsCommand(args: CliArgs) {
 
   console.log(`\nDone: ${totalRendered} rendered, ${totalSkipped} skipped`);
 }
-

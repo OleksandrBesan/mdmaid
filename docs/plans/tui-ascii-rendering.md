@@ -1,5 +1,9 @@
 # TUI ASCII Rendering Implementation Plan
 
+> **Status:** Implemented in PR #4. The public API, Veol wrapper,
+> `beautiful-mermaid` fallback, Markdown fence replacement, CLI commands,
+> documentation, and tests now live on this branch.
+
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
 **Goal:** Add a terminal-native Markdown + Mermaid rendering path to mdmaid, using `veol` CLI as the broad Mermaid ASCII backend and `beautiful-mermaid` as the JS fallback.
@@ -316,12 +320,17 @@ Read the README and ensure a new user can choose either browser preview or termi
 
 ---
 
-## Open questions
+## Resolved decisions
 
-1. Should `beautiful-mermaid` be a normal dependency or optional peer dependency?
-2. Should `veol` be discovered automatically via PATH only, or configurable via env/config?
-3. Should `mdmaid tui` preserve color/styling or output plain text by default?
-4. Should `show --viewer auto` prefer web or TUI on local desktop terminals?
+1. `beautiful-mermaid` is a normal dependency so a fresh installation has a
+   working renderer when Veol is absent. It is dynamically imported on demand.
+2. Veol is discovered through `PATH` by default and library consumers can set
+   `veolPath` explicitly.
+3. TUI output is plain and color-free by default for predictable SSH and CI
+   behavior. `unicode: false` requests pure ASCII from `beautiful-mermaid`.
+4. `show --viewer auto` selects TUI for interactive, SSH, Termius, and Neovim
+   contexts, and preserves the existing HTML behavior for non-interactive output.
+5. `width` applies to Veol. `beautiful-mermaid` has no maximum-width option.
 
 ---
 
