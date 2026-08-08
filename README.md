@@ -170,10 +170,11 @@ Backend selection is deterministic:
 
 1. `veol` renders the whole Markdown document and supports the broadest set of
    Mermaid diagram types.
-2. `beautiful-mermaid` replaces supported Mermaid fences with Unicode terminal
-   art while preserving the rest of the Markdown source.
-3. `source` preserves unsupported Mermaid as a fenced block and reports a
-   warning on stderr.
+2. `beautiful-mermaid` selects mdmaid's built-in renderer. It parses Markdown
+   once with remark/GFM, renders the full document, and uses
+   `beautiful-mermaid` for supported diagram nodes.
+3. `source` preserves Markdown syntax for callers that explicitly need raw
+   source. Terminal control sequences are still removed for safety.
 
 Choose a backend explicitly when scripting:
 
@@ -182,12 +183,37 @@ mdmaid tui README.md --backend auto
 mdmaid tui README.md --backend veol --width 100
 mdmaid tui README.md --backend beautiful-mermaid
 mdmaid tui README.md --backend source
+mdmaid tui README.md --ascii --no-color
+mdmaid tui README.md --unicode --color
 ```
 
-`--width` applies to Veol and accepts 20–1000 columns. The JavaScript fallback
-uses plain, color-free Unicode output and does not currently enforce a maximum
-width. It supports flowcharts, state, sequence, class, ER, and XY diagrams.
-Other diagram types remain readable as source when Veol is unavailable.
+The built-in renderer supports:
+
+- six heading levels with visible hierarchy;
+- bold, italic, strikethrough, inline code, and readable `label (URL)` links;
+- wrapped paragraphs, ordered/unordered/nested lists, and GFM task lists;
+- blockquotes, horizontal rules, and bordered width-aware GFM tables;
+- labeled fenced-code boxes with syntax highlighting for recognized common
+  languages and an unhighlighted fallback for unknown languages;
+- flowchart, state, sequence, class, ER, and XY Mermaid diagrams through
+  `beautiful-mermaid`, with unsupported Mermaid kept in a labeled code box and
+  reported through the structured `warnings` array.
+
+`--width` accepts 20–1000 terminal columns and applies to Veol and the built-in
+renderer. Tables, code boxes, paragraphs, and diagrams never intentionally
+exceed that visible cell width. Wide Unicode and ANSI styling are excluded from
+the width count.
+
+Unicode borders and symbols are the default. `--ascii` (or `unicode: false` in
+the API) selects portable ASCII borders, bullets, task markers, and Mermaid
+output.
+
+The CLI enables safe ANSI styling when stdout is a TTY. Redirected output is
+plain and pipeable. `--color` and `--no-color` are explicit controls, while the
+presence of `NO_COLOR` always disables styling. The library does not inspect the
+TTY when `color` is explicitly provided, so `color: true` and `color: false` are
+deterministic. Only renderer-owned SGR styling is emitted; Markdown-provided
+ESC, OSC, CSI, C0/C1, cursor, hyperlink, and clipboard controls are removed.
 
 `show --viewer auto` uses terminal output in an interactive terminal, SSH,
 Termius, or Neovim context. In non-interactive pipelines it keeps the existing
@@ -227,6 +253,8 @@ import {
 const document = await renderMarkdownToTui(markdown, {
   backend: 'auto',
   width: 100,
+  color: false,
+  unicode: true,
 });
 
 const diagram = await renderMermaidToAscii('graph LR; A --> B', {
@@ -241,8 +269,8 @@ console.error(diagram.warnings.join('\n'));
 Both functions return `{ output, backend, warnings }`. Available backends are
 `auto`, `veol`, `beautiful-mermaid`, and `source`. Library consumers can set
 `veolPath` when the binary is not available on `PATH`, set `unicode: false` for
-pure ASCII from `beautiful-mermaid`, or set `beautifulMermaid: false` to disable
-the automatic JavaScript fallback.
+portable ASCII, set `color` explicitly for deterministic styling, or set
+`beautifulMermaid: false` to disable the automatic in-process fallback.
 
 ### SSR (`mdmaid/ssr`)
 

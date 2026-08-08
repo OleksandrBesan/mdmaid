@@ -72,7 +72,8 @@ test('tui reads Markdown from stdin and replaces Mermaid fences', () => {
   );
 
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /^# Pipe/m);
+  assert.doesNotMatch(result.stdout, /^# Pipe/m);
+  assert.match(result.stdout, /Pipe/);
   assert.doesNotMatch(result.stdout, /```mermaid/);
   assert.match(result.stdout, /A/);
   assert.match(result.stdout, /B/);
@@ -142,4 +143,63 @@ test('help documents the terminal commands', () => {
   assert.match(result.stdout, /mdmaid tui <file\|->/);
   assert.match(result.stdout, /mdmaid render-mermaid <file\|->/);
   assert.match(result.stdout, /--viewer <type>/);
+  assert.match(result.stdout, /--color/);
+  assert.match(result.stdout, /--no-color/);
+  assert.match(result.stdout, /--ascii/);
+  assert.match(result.stdout, /NO_COLOR/);
+  assert.match(result.stdout, /syntax highlighting/);
+  assert.match(result.stdout, /Veol first/);
+});
+
+test('redirected TUI output is richly rendered without ANSI styling', () => {
+  const result = runCli(
+    ['tui', '-', '--backend', 'beautiful-mermaid'],
+    '# Redirected\n\nA **bold** paragraph.\n',
+  );
+
+  assert.equal(result.status, 0);
+  assert.doesNotMatch(result.stdout, /^# Redirected/m);
+  assert.doesNotMatch(result.stdout, /\u001B/u);
+  assert.match(result.stdout, /Redirected/);
+  assert.match(result.stdout, /bold/);
+});
+
+test('the CLI supports explicit color and NO_COLOR overrides it', () => {
+  const markdown = '# Colored\n\n```typescript\nconst value = 42;\n```\n';
+  const colorEnv = { ...process.env };
+  delete colorEnv.NO_COLOR;
+  const colored = runCli(
+    ['tui', '-', '--backend', 'beautiful-mermaid', '--color'],
+    markdown,
+    colorEnv,
+  );
+  const noColor = runCli(
+    ['tui', '-', '--backend', 'beautiful-mermaid', '--color'],
+    markdown,
+    { ...process.env, NO_COLOR: '1' },
+  );
+
+  assert.equal(colored.status, 0);
+  assert.match(colored.stdout, /\u001B\[/u);
+  assert.equal(noColor.status, 0);
+  assert.doesNotMatch(noColor.stdout, /\u001B/u);
+});
+
+test('the CLI exposes portable ASCII terminal rendering', () => {
+  const result = runCli(
+    [
+      'tui',
+      '-',
+      '--backend',
+      'beautiful-mermaid',
+      '--ascii',
+      '--width',
+      '24',
+    ],
+    '# Portable\n\n```typescript\nconst value = 42;\n```\n',
+  );
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^\+- typescript -+\+$/m);
+  assert.doesNotMatch(result.stdout, /[┌┐└┘─│═]/u);
 });
