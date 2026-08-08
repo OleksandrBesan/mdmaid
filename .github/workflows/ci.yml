@@ -24,7 +24,9 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
-      - run: npm run build
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+      - run: npm test
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
@@ -49,6 +51,8 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
       - run: npm run build
 
       - name: Configure git
