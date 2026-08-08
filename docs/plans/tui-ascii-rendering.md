@@ -4,6 +4,11 @@
 > `beautiful-mermaid` fallback, Markdown fence replacement, CLI commands,
 > documentation, and tests now live on this branch.
 
+> **Historical note:** Issue #6 supersedes this plan's raw-Markdown fallback.
+> The built-in backend now renders the complete remark/GFM AST with width-aware
+> terminal layout, safe color, code highlighting, tables, and boxed Mermaid
+> source fallback. See the README for current behavior.
+
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
 **Goal:** Add a terminal-native Markdown + Mermaid rendering path to mdmaid, using `veol` CLI as the broad Mermaid ASCII backend and `beautiful-mermaid` as the JS fallback.

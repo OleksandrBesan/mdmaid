@@ -107,7 +107,7 @@ test('an explicit Veol backend falls back to source when Veol fails', async () =
   assert.equal(result.output, `\`\`\`mermaid\n${code}\n\`\`\``);
 });
 
-test('the Markdown fallback replaces Mermaid fences and preserves other source', async () => {
+test('the Markdown fallback richly renders Markdown around Mermaid diagrams', async () => {
   const markdown = [
     '# Mixed document',
     '',
@@ -129,12 +129,14 @@ test('the Markdown fallback replaces Mermaid fences and preserves other source',
   });
 
   assert.equal(result.backend, 'beautiful-mermaid');
-  assert.match(result.output, /^# Mixed document/m);
+  assert.doesNotMatch(result.output, /^# Mixed document/m);
+  assert.match(result.output, /Mixed document/);
   assert.match(result.output, /Before\./);
   assert.doesNotMatch(result.output, /```mermaid/);
   assert.match(result.output, /A/);
   assert.match(result.output, /B/);
-  assert.match(result.output, /```js\nconsole\.log\("preserved"\);\n```/);
+  assert.doesNotMatch(result.output, /```js/);
+  assert.match(result.output, /console\.log\("preserved"\);/);
 });
 
 test('auto preserves source when Veol is missing and the JS fallback is disabled', async () => {
@@ -163,29 +165,34 @@ test('beautiful-mermaid preserves unsupported diagrams with a warning', async ()
   assert.match(result.warnings.join('\n'), /beautiful-mermaid.*could not render/i);
 });
 
-test('the Markdown fallback leaves documents without Mermaid unchanged', async () => {
+test('the Markdown fallback richly renders documents without Mermaid', async () => {
   const markdown = '# Plain Markdown\n\n- one\n- two\n';
 
   const result = await renderMarkdownToTui(markdown, {
     backend: 'beautiful-mermaid',
   });
 
-  assert.deepEqual(result, {
-    output: markdown,
-    backend: 'source',
-    warnings: [],
-  });
+  assert.equal(result.backend, 'beautiful-mermaid');
+  assert.deepEqual(result.warnings, []);
+  assert.doesNotMatch(result.output, /^# Plain Markdown/m);
+  assert.doesNotMatch(result.output, /^- one/m);
+  assert.match(result.output, /Plain Markdown/);
+  assert.match(result.output, /one/);
+  assert.match(result.output, /two/);
 });
 
-test('the Markdown fallback preserves an unsupported Mermaid fence exactly', async () => {
+test('the Markdown fallback boxes unsupported Mermaid source', async () => {
   const markdown = '~~~mermaid\npie\n  "Dogs": 1\n~~~\n';
 
   const result = await renderMarkdownToTui(markdown, {
     backend: 'beautiful-mermaid',
   });
 
-  assert.equal(result.backend, 'source');
-  assert.equal(result.output, markdown);
+  assert.equal(result.backend, 'beautiful-mermaid');
+  assert.doesNotMatch(result.output, /~~~mermaid/);
+  assert.match(result.output, /mermaid/);
+  assert.match(result.output, /pie/);
+  assert.match(result.output, /"Dogs": 1/);
   assert.match(result.warnings.join('\n'), /beautiful-mermaid.*could not render/i);
 });
 

@@ -6,6 +6,7 @@ export interface TuiRenderOptions {
   veolPath?: string;
   beautifulMermaid?: boolean;
   unicode?: boolean;
+  color?: boolean;
 }
 
 export interface TuiRenderResult {

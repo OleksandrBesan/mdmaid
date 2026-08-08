@@ -23,6 +23,8 @@ interface CliArgs {
   backend?: string;
   viewer?: string;
   width?: number;
+  color?: boolean;
+  unicode?: boolean;
 }
 
 function parseArgs(args: string[]): CliArgs {
@@ -81,6 +83,18 @@ function parseArgs(args: string[]): CliArgs {
       case '--width':
         parsed.width = Number(readOptionValue());
         break;
+      case '--color':
+        parsed.color = true;
+        break;
+      case '--no-color':
+        parsed.color = false;
+        break;
+      case '--unicode':
+        parsed.unicode = true;
+        break;
+      case '--ascii':
+        parsed.unicode = false;
+        break;
       case '--config':
       case '-c':
         parsed.config = readOptionValue();
@@ -132,11 +146,23 @@ Options:
   -f, --format <type>      Output format: html, pdf (default: html)
   --viewer <type>          Viewer: auto, tui, web (default: auto)
   --backend <type>         TUI backend: auto, veol, beautiful-mermaid, source
-  --width <columns>        Terminal width for Veol (20-1000)
+  --width <columns>        Terminal output width (20-1000)
+  --color                  Force safe ANSI styling (unless NO_COLOR is set)
+  --no-color               Disable ANSI styling
+  --unicode                Use Unicode borders and symbols (default)
+  --ascii                  Use portable ASCII borders and symbols
   -c, --config <file>      Config file (mdmaid.config.json)
   --manifest               Write manifest.json for caching
   -h, --help               Show help
   -v, --version            Show version
+
+Terminal rendering:
+  auto tries Veol first, then the built-in rich Markdown renderer.
+  The built-in renderer supports headings, inline styles, lists, quotes,
+  tables, fenced code boxes, syntax highlighting, and Mermaid diagrams.
+  Color is enabled for a TTY, disabled for redirected output, and NO_COLOR wins.
+  Unknown code languages remain readable without highlighting; --ascii uses
+  portable borders and symbols instead of Unicode box drawing.
 
 Examples:
   mdmaid README.md                          # Output to stdout
@@ -281,6 +307,10 @@ function getTuiOptions(args: CliArgs): TuiRenderOptions {
   return {
     backend: backend as TuiBackend,
     width: args.width,
+    color:
+      !('NO_COLOR' in process.env) &&
+      (args.color ?? Boolean(process.stdout.isTTY)),
+    unicode: args.unicode,
   };
 }
 
