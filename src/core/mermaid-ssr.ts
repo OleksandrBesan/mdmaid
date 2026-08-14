@@ -1,9 +1,11 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const require = createRequire(import.meta.url);
 
 // Puppeteer is optional - only loaded when SSR is used
 let pptr: any = null;
@@ -49,6 +51,8 @@ export interface MermaidSSROptions {
   mermaid?: MermaidConfig;
   puppeteer?: PuppeteerConfig;
   embedFonts?: boolean;
+  /** Permit diagrams to load HTTP(S) and other external browser resources. */
+  allowExternalResources?: boolean;
 }
 
 interface BrowserContext {
@@ -181,13 +185,25 @@ async function generateFontFaceCSS(fonts: FontConfig[]): Promise<string> {
 async function createPage(options: MermaidSSROptions = {}): Promise<BrowserContext> {
   const pptr = await loadPuppeteer();
 
-  const browser = await pptr.default.launch({
+  const browser = await pptr.launch({
     headless: 'shell',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
     ...options.puppeteer,
   });
 
   const page = await browser.newPage();
+
+  if (options.allowExternalResources === false) {
+    await page.setRequestInterception(true);
+    page.on('request', (request: any) => {
+      const url = String(request.url());
+      if (/^(?:about:|blob:|data:|file:)/i.test(url)) {
+        request.continue();
+      } else {
+        request.abort('blockedbyclient');
+      }
+    });
+  }
 
   // Generate font CSS (now async)
   const fontCSS = options.fonts?.length ? await generateFontFaceCSS(options.fonts) : '';

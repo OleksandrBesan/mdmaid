@@ -1,18 +1,30 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import test, { after } from 'node:test';
 
 const cliPath = fileURLToPath(new URL('../bin/mdmaid.js', import.meta.url));
 const fixtureDirectory = mkdtempSync(join(tmpdir(), 'mdmaid-tui-cli-'));
 const markdownPath = join(fixtureDirectory, 'document.md');
+const invalidMarkdownPath = join(fixtureDirectory, 'invalid-document.md');
+const renderedHtmlPath = join(fixtureDirectory, 'document.html');
+const require = createRequire(import.meta.url);
+const installedMermaidVersion = JSON.parse(
+  readFileSync(require.resolve('mermaid/package.json'), 'utf8'),
+).version;
 
 writeFileSync(
   markdownPath,
   '# CLI document\n\n```mermaid\ngraph LR\n  A --> B\n```\n',
+);
+
+writeFileSync(
+  invalidMarkdownPath,
+  '# Broken sequence\n\n```mermaid\nsequenceDiagram\n  A->>B: first; second\n```\n',
 );
 
 after(() => {
@@ -108,6 +120,14 @@ test('the default command retains the existing HTML renderer', () => {
   assert.match(result.stdout, /<h1 id="cli-document">.*CLI document<\/h1>/);
 });
 
+test('standalone HTML uses the Mermaid version validated by mdmaid', () => {
+  const result = runCli([markdownPath, '--output', renderedHtmlPath]);
+  const html = readFileSync(renderedHtmlPath, 'utf8');
+
+  assert.equal(result.status, 0);
+  assert.match(html, new RegExp(`mermaid@${installedMermaidVersion}`));
+});
+
 test('the CLI rejects an invalid TUI backend', () => {
   const result = runCli(['tui', markdownPath, '--backend', 'unknown']);
 
@@ -149,6 +169,65 @@ test('help documents the terminal commands', () => {
   assert.match(result.stdout, /NO_COLOR/);
   assert.match(result.stdout, /syntax highlighting/);
   assert.match(result.stdout, /Veol first/);
+  assert.match(result.stdout, /mdmaid validate <file\|->/);
+  assert.match(result.stdout, /--json/);
+  assert.match(result.stdout, /--render/);
+});
+
+test('validate emits deterministic JSON and exits zero for valid diagrams', () => {
+  const result = runCli(['validate', markdownPath, '--json']);
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, '');
+  const validation = JSON.parse(result.stdout);
+  assert.equal(validation.valid, true);
+  assert.equal(validation.mode, 'parse');
+  assert.equal(validation.diagrams.length, 1);
+  assert.equal(validation.diagrams[0].parsed, true);
+});
+
+test('validate reads stdin, locates Mermaid errors, and exits one', () => {
+  const source = readFileSync(invalidMarkdownPath, 'utf8');
+  const result = runCli(['validate', '-', '--json'], source);
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, '');
+  const validation = JSON.parse(result.stdout);
+  assert.equal(validation.valid, false);
+  assert.equal(validation.diagnostics[0].code, 'MERMAID_PARSE_ERROR');
+  assert.equal(validation.diagnostics[0].location.start.line, 5);
+});
+
+test('validate presents readable text diagnostics', () => {
+  const result = runCli(['validate', invalidMarkdownPath]);
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, '');
+  assert.match(result.stdout, /validation failed/i);
+  assert.match(result.stdout, /MERMAID_PARSE_ERROR/);
+  assert.match(result.stdout, /line 5/i);
+});
+
+test('validate --render uses exit two for browser runtime failures', () => {
+  const result = runCli(
+    ['validate', markdownPath, '--render', '--json'],
+    undefined,
+    {
+      ...process.env,
+      PUPPETEER_EXECUTABLE_PATH: join(fixtureDirectory, 'missing-browser'),
+    },
+  );
+
+  assert.equal(result.status, 2);
+  const validation = JSON.parse(result.stdout);
+  assert.equal(validation.mode, 'render');
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.diagnostics.some(
+      ({ code, kind }) =>
+        code === 'MERMAID_RENDER_RUNTIME_ERROR' && kind === 'runtime',
+    ),
+  );
 });
 
 test('redirected TUI output is richly rendered without ANSI styling', () => {

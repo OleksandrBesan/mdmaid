@@ -8,6 +8,7 @@ A preconfigured markdown renderer with Mermaid diagram support. Built for person
 
 - Markdown → HTML via remark (GFM, slug, autolink-headings)
 - Mermaid code blocks → `<div class="mermaid">` (client-side rendering)
+- Markdown and Mermaid preflight validation with source-located diagnostics
 - Terminal-native Markdown + Mermaid output for SSH, tmux, CI, and editors
 - **SSR module** - Server-side mermaid → SVG rendering with font embedding
 - **Bundled font** - Departure Mono included for consistent diagram rendering
@@ -52,6 +53,46 @@ graph TD
 // Returns HTML with <div class="mermaid">...</div>
 // Mermaid renders client-side
 ```
+
+### Markdown and Mermaid Validation
+
+Fast validation parses the Markdown once with remark/GFM and checks every
+Mermaid fence with the same installed Mermaid version that mdmaid renders:
+
+```typescript
+import { validateMarkdown, validateMermaid } from 'mdmaid';
+
+const result = await validateMarkdown(markdown);
+
+if (!result.valid) {
+  for (const diagnostic of result.diagnostics) {
+    console.error(
+      diagnostic.code,
+      diagnostic.location?.start.line,
+      diagnostic.message,
+    );
+  }
+}
+
+const diagram = await validateMermaid('graph LR\n  A --> B');
+```
+
+Use `{ mermaid: 'render' }` for the stronger browser check. It requires the
+optional `puppeteer` peer dependency, renders all syntax-valid diagrams as SVG,
+uses Mermaid's strict security mode, and blocks outbound browser requests from
+untrusted diagram content:
+
+```typescript
+const result = await validateMarkdown(markdown, {
+  mermaid: 'render',
+});
+```
+
+Markdown is deliberately permissive, so mdmaid reports structural problems
+such as unclosed fenced code blocks rather than claiming that arbitrary prose
+is invalid. A Mermaid diagram can also be valid for the web renderer while
+remaining unsupported by the smaller `beautiful-mermaid` TUI backend; that TUI
+fallback is a compatibility distinction, not a Mermaid syntax error.
 
 ### Server-Side Mermaid Rendering
 
@@ -155,6 +196,13 @@ cat README.md | mdmaid tui -
 mdmaid render-mermaid diagram.mmd --format ascii
 cat diagram.mmd | mdmaid render-mermaid - --format ascii
 
+# Fast validation for people, agents, and CI
+mdmaid validate README.md
+cat README.md | mdmaid validate - --json
+
+# Strong validation through the optional browser renderer
+mdmaid validate README.md --render --json
+
 # Select the terminal or existing HTML renderer explicitly
 mdmaid show README.md --viewer tui
 mdmaid show README.md --viewer web
@@ -242,6 +290,39 @@ const blocks = extractMermaidBlocks(content);
 // ['graph TD\n  A --> B', 'sequenceDiagram\n  ...']
 ```
 
+#### `validateMarkdown(markdown, options?)`
+
+Returns `{ valid, mode, markdown, diagrams, diagnostics }`. Each diagram
+includes its fence location, detected type, parse/render state, and its own
+diagnostics. Mermaid parser locations are converted to absolute Markdown line
+and column numbers.
+
+```typescript
+const result = await validateMarkdown(content, {
+  mermaid: 'parse', // fast default; use 'render' for browser verification
+  maxMarkdownCharacters: 5_000_000,
+  maxDiagramCharacters: 200_000,
+  maxDiagrams: 100,
+});
+```
+
+Content failures have `kind: 'content'`; missing Puppeteer/browser and other
+render-environment failures have `kind: 'runtime'`. Diagnostic text derived
+from input is bounded and stripped of terminal-control sequences.
+
+#### `validateMermaid(code, options?)`
+
+Validates standalone Mermaid source and returns one diagram result using the
+same parse or browser-render modes.
+
+The matching CLI command supports human-readable and JSON output:
+
+```bash
+mdmaid validate document.md          # exit 0 valid, 1 invalid content
+mdmaid validate document.md --json
+mdmaid validate document.md --render # exit 2 if browser runtime is unavailable
+```
+
 ### TUI (`mdmaid/tui`)
 
 ```typescript
@@ -311,6 +392,7 @@ interface MermaidSSROptions {
   mermaid?: MermaidConfig;    // Mermaid configuration
   puppeteer?: PuppeteerConfig; // Puppeteer launch options
   embedFonts?: boolean;       // Embed fonts in SVG (default: false)
+  allowExternalResources?: boolean; // Preserve existing behavior unless false
 }
 
 interface FontConfig {
@@ -348,18 +430,6 @@ interface FontConfig {
 - Smart container-aware rendering
 - Pan/zoom for large diagrams
 - Viewport-based sizing hints
-
-### Validation & Error Handling
-
-**The pain:**
-- Works in VS Code, breaks on GitHub (version mismatch)
-- Single typo → ugly error block on published site
-- No graceful fallback
-
-**Potential approach:**
-- Pre-flight syntax validation
-- Graceful error states
-- Version compatibility checking
 
 ### Accessibility
 
