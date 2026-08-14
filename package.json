@@ -40,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/OleksandrBesan/mdmaid"
+    "url": "git+https://github.com/riidii-md/mdmaid.git"
   },
   "dependencies": {
     "beautiful-mermaid": "^1.1.3",
