@@ -44,7 +44,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # npm trusted publisher identity:
-      # OleksandrBesan/mdmaid, workflow ci.yml, environment prod.
+      # riidii-md/mdmaid, workflow ci.yml, environment prod.
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
