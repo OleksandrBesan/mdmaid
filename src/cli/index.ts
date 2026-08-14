@@ -3,12 +3,16 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from 'fs';
 import { resolve, join, relative, extname, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import crypto from 'crypto';
 
+import type { MarkdownValidationResult } from '../core/validation.js';
+import { sanitizeTerminalText } from '../tui/security.js';
 import type { TuiBackend, TuiRenderOptions, TuiRenderResult } from '../tui/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const require = createRequire(import.meta.url);
 
 interface CliArgs {
   command: string;
@@ -25,6 +29,8 @@ interface CliArgs {
   width?: number;
   color?: boolean;
   unicode?: boolean;
+  json?: boolean;
+  renderValidation?: boolean;
 }
 
 function parseArgs(args: string[]): CliArgs {
@@ -56,6 +62,9 @@ function parseArgs(args: string[]): CliArgs {
         break;
       case 'render-mermaid':
         parsed.command = 'render-mermaid';
+        break;
+      case 'validate':
+        parsed.command = 'validate';
         break;
       case '-o':
       case '--output':
@@ -94,6 +103,12 @@ function parseArgs(args: string[]): CliArgs {
         break;
       case '--ascii':
         parsed.unicode = false;
+        break;
+      case '--json':
+        parsed.json = true;
+        break;
+      case '--render':
+        parsed.renderValidation = true;
         break;
       case '--config':
       case '-c':
@@ -135,6 +150,7 @@ Usage:
   mdmaid show <file> --viewer <type>  Render with web, TUI, or auto viewer
   mdmaid tui <file|->                 Render Markdown for the terminal
   mdmaid render-mermaid <file|->      Render one Mermaid diagram as text
+  mdmaid validate <file|->            Validate Markdown and Mermaid diagrams
   mdmaid serve <file.md>              Start dev server
   mdmaid serve <file.md> --watch      Watch for changes
   mdmaid render-diagrams <dir>        Render mermaid diagrams to SVG
@@ -151,6 +167,8 @@ Options:
   --no-color               Disable ANSI styling
   --unicode                Use Unicode borders and symbols (default)
   --ascii                  Use portable ASCII borders and symbols
+  --json                   Emit structured validation JSON
+  --render                 Verify Mermaid in the browser during validation
   -c, --config <file>      Config file (mdmaid.config.json)
   --manifest               Write manifest.json for caching
   -h, --help               Show help
@@ -164,12 +182,19 @@ Terminal rendering:
   Unknown code languages remain readable without highlighting; --ascii uses
   portable borders and symbols instead of Unicode box drawing.
 
+Validation:
+  validate checks every Mermaid fence with mdmaid's installed Mermaid parser.
+  --render additionally launches the optional Puppeteer browser renderer.
+  Exit codes: 0 valid, 1 invalid content, 2 validation runtime unavailable.
+
 Examples:
   mdmaid README.md                          # Output to stdout
   mdmaid README.md -o output.html           # Save to file
   mdmaid tui README.md                      # Terminal Markdown + Mermaid
   cat README.md | mdmaid tui -              # Read Markdown from stdin
   mdmaid render-mermaid diagram.mmd --format ascii
+  mdmaid validate README.md --json
+  mdmaid validate README.md --render
   mdmaid serve docs/ --port 3000 --watch    # Live preview
 
   # Render mermaid diagrams to SVG (requires puppeteer)
@@ -181,10 +206,27 @@ For Neovim integration, see: https://github.com/OleksandrBesan/mdmaid.nvim
 }
 
 function showVersion() {
-  const packageJson = JSON.parse(
-    readFileSync(resolve(__dirname, '../../package.json'), 'utf-8')
-  );
+  const packageJson = readPackageMetadata();
   console.log(`mdmaid v${packageJson.version}`);
+}
+
+function readPackageMetadata(): {
+  version: string;
+  dependencies?: Record<string, string>;
+} {
+  return JSON.parse(
+    readFileSync(resolve(__dirname, '../../package.json'), 'utf-8'),
+  );
+}
+
+function installedMermaidVersion(): string {
+  const packageJson: { version?: string } = JSON.parse(
+    readFileSync(require.resolve('mermaid/package.json'), 'utf8'),
+  );
+  if (!packageJson.version) {
+    throw new Error('Unable to determine the installed Mermaid version.');
+  }
+  return packageJson.version;
 }
 
 export async function main() {
@@ -209,6 +251,9 @@ export async function main() {
     case 'render-mermaid':
       await renderMermaidCommand(args);
       break;
+    case 'validate':
+      await validateCommand(args);
+      break;
     case 'serve':
       await serveCommand(args);
       break;
@@ -229,6 +274,7 @@ async function renderCommand(args: CliArgs) {
 
   if (args.output) {
     const outputPath = resolve(args.output);
+    const mermaidVersion = installedMermaidVersion();
 
     // Wrap in basic HTML template
     const fullHtml = `<!DOCTYPE html>
@@ -238,7 +284,7 @@ async function renderCommand(args: CliArgs) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rendered Markdown</title>
   <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@${mermaidVersion}/dist/mermaid.esm.min.mjs';
     mermaid.initialize({ startOnLoad: true, theme: 'default' });
   </script>
   <style>
@@ -352,6 +398,52 @@ async function renderMermaidCommand(args: CliArgs): Promise<void> {
   const code = await readInput(args.input!);
   const result = await renderMermaidToAscii(code, getTuiOptions(args));
   writeTuiResult(result);
+}
+
+async function validateCommand(args: CliArgs): Promise<void> {
+  const { validateMarkdown } = await import('../core/validation.js');
+  const markdown = await readInput(args.input!);
+  const result = await validateMarkdown(markdown, {
+    mermaid: args.renderValidation ? 'render' : 'parse',
+  });
+
+  if (args.json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    writeValidationText(result, args.input!);
+  }
+
+  process.exitCode = result.diagnostics.some(({ kind }) => kind === 'runtime')
+    ? 2
+    : result.valid
+      ? 0
+      : 1;
+}
+
+function writeValidationText(
+  result: MarkdownValidationResult,
+  input: string,
+): void {
+  const source = input === '-' ? 'stdin' : sanitizeTerminalText(input);
+  if (result.valid) {
+    const count = result.diagrams.length;
+    const noun = count === 1 ? 'diagram' : 'diagrams';
+    process.stdout.write(
+      `✓ ${source}: valid (${count} Mermaid ${noun}, ${result.mode} mode)\n`,
+    );
+    return;
+  }
+
+  process.stdout.write(`✗ ${source}: validation failed\n`);
+  for (const diagnostic of result.diagnostics) {
+    const location = diagnostic.location
+      ? `line ${diagnostic.location.start.line}, column ${diagnostic.location.start.column}`
+      : 'document';
+    const message = diagnostic.message.replace(/\s+/g, ' ').trim();
+    process.stdout.write(
+      `  ${location} ${diagnostic.code}: ${message}\n`,
+    );
+  }
 }
 
 function prefersTuiViewer(): boolean {
